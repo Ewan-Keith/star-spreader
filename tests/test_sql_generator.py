@@ -629,6 +629,131 @@ FROM `my_catalog`.`my_schema`.`my_table`"""
     assert result == expected
 
 
+def test_multiple_independent_nested_arrays_no_lambda_conflict():
+    """Test two top-level ARRAY<STRUCT<ARRAY<STRUCT>>> fields to ensure lambda vars don't conflict."""
+    schema = TableSchema(
+        catalog="my_catalog",
+        schema_name="my_schema",
+        table_name="my_table",
+        columns=[
+            ColumnInfo(name="id", data_type="INT", is_complex=False, nullable=False),
+            # First nested array structure
+            ColumnInfo(
+                name="sales_data",
+                data_type="ARRAY<STRUCT<region:STRING,orders:ARRAY<STRUCT<order_id:INT,amount:DECIMAL>>>>",
+                is_complex=True,
+                nullable=True,
+                children=[
+                    ColumnInfo(
+                        name="element",
+                        data_type="STRUCT<region:STRING,orders:ARRAY<STRUCT<order_id:INT,amount:DECIMAL>>>",
+                        is_complex=True,
+                        nullable=True,
+                        children=[
+                            ColumnInfo(
+                                name="region", data_type="STRING", is_complex=False, nullable=True
+                            ),
+                            ColumnInfo(
+                                name="orders",
+                                data_type="ARRAY<STRUCT<order_id:INT,amount:DECIMAL>>",
+                                is_complex=True,
+                                nullable=True,
+                                children=[
+                                    ColumnInfo(
+                                        name="element",
+                                        data_type="STRUCT<order_id:INT,amount:DECIMAL>",
+                                        is_complex=True,
+                                        nullable=True,
+                                        children=[
+                                            ColumnInfo(
+                                                name="order_id",
+                                                data_type="INT",
+                                                is_complex=False,
+                                                nullable=True,
+                                            ),
+                                            ColumnInfo(
+                                                name="amount",
+                                                data_type="DECIMAL",
+                                                is_complex=False,
+                                                nullable=True,
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            # Second independent nested array structure (same depth)
+            ColumnInfo(
+                name="employee_data",
+                data_type="ARRAY<STRUCT<department:STRING,staff:ARRAY<STRUCT<emp_id:INT,salary:DECIMAL>>>>",
+                is_complex=True,
+                nullable=True,
+                children=[
+                    ColumnInfo(
+                        name="element",
+                        data_type="STRUCT<department:STRING,staff:ARRAY<STRUCT<emp_id:INT,salary:DECIMAL>>>",
+                        is_complex=True,
+                        nullable=True,
+                        children=[
+                            ColumnInfo(
+                                name="department",
+                                data_type="STRING",
+                                is_complex=False,
+                                nullable=True,
+                            ),
+                            ColumnInfo(
+                                name="staff",
+                                data_type="ARRAY<STRUCT<emp_id:INT,salary:DECIMAL>>",
+                                is_complex=True,
+                                nullable=True,
+                                children=[
+                                    ColumnInfo(
+                                        name="element",
+                                        data_type="STRUCT<emp_id:INT,salary:DECIMAL>",
+                                        is_complex=True,
+                                        nullable=True,
+                                        children=[
+                                            ColumnInfo(
+                                                name="emp_id",
+                                                data_type="INT",
+                                                is_complex=False,
+                                                nullable=True,
+                                            ),
+                                            ColumnInfo(
+                                                name="salary",
+                                                data_type="DECIMAL",
+                                                is_complex=False,
+                                                nullable=True,
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    generator = SQLGenerator(schema)
+    result = generator.generate_select()
+
+    # Both should use item/item2, but they're in separate TRANSFORM scopes so no conflict
+    # First array uses: item (for sales_data elements) and item2 (for orders elements)
+    # Second array uses: item (for employee_data elements) and item2 (for staff elements)
+    # This is CORRECT - lambda scoping is per TRANSFORM, not global
+    expected = """SELECT `id`,
+       TRANSFORM(`sales_data`, item -> STRUCT(item.`region` AS `region`, TRANSFORM(item.`orders`, item2 -> STRUCT(item2.`order_id` AS `order_id`, item2.`amount` AS `amount`)) AS `orders`)) AS `sales_data`,
+       TRANSFORM(`employee_data`, item -> STRUCT(item.`department` AS `department`, TRANSFORM(item.`staff`, item2 -> STRUCT(item2.`emp_id` AS `emp_id`, item2.`salary` AS `salary`)) AS `staff`)) AS `employee_data`
+FROM `my_catalog`.`my_schema`.`my_table`"""
+
+    assert result == expected
+
+
 def test_extreme_nesting_three_level_deep_arrays():
     """Test STRUCT<ARRAY<STRUCT<ARRAY<STRUCT<ARRAY<STRUCT>>>>>> - 3 levels of nested arrays."""
     schema = TableSchema(

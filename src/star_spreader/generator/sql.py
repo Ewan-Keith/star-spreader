@@ -133,13 +133,14 @@ class SQLGenerator:
             field_ref = f"item.`{field.name}`"
 
             if field.is_complex and field.children:
-                child_names = {c.name for c in field.children}
+                # Use data_type to distinguish between ARRAY, MAP, and STRUCT
+                # since child names alone can be ambiguous (e.g., STRUCT<key:X, value:Y> vs MAP)
+                data_type_upper = field.data_type.upper()
 
-                # Nested array or map within the struct
-                if child_names == {"element"}:
-                    # Check if it's an array of structs (nested)
-                    nested_element = field.children[0]
-                    if nested_element.is_complex and nested_element.children:
+                if data_type_upper.startswith("ARRAY"):
+                    # ARRAY - check if it contains structs
+                    nested_element = field.children[0] if field.children else None
+                    if nested_element and nested_element.is_complex and nested_element.children:
                         # Nested ARRAY<STRUCT> - we need nested TRANSFORM with different lambda var
                         nested_transform = self._build_nested_array_of_struct_in_array(
                             field, "item", field.name, depth=0
@@ -148,11 +149,11 @@ class SQLGenerator:
                     else:
                         # ARRAY<primitive>
                         field_expressions.append(f"{field_ref} AS `{field.name}`")
-                elif child_names == {"key", "value"}:
-                    # MAP
+                elif data_type_upper.startswith("MAP"):
+                    # MAP - reference as-is
                     field_expressions.append(f"{field_ref} AS `{field.name}`")
                 else:
-                    # Nested STRUCT within the array element
+                    # STRUCT - reconstruct nested struct
                     nested_struct_expr = self._build_nested_struct_in_array(field, "item")
                     field_expressions.append(f"{nested_struct_expr} AS `{field.name}`")
             else:
@@ -194,12 +195,13 @@ class SQLGenerator:
             field_ref = f"{nested_lambda_var}.`{field.name}`"
 
             if field.is_complex and field.children:
-                child_names = {c.name for c in field.children}
+                # Use data_type to distinguish between ARRAY, MAP, and STRUCT
+                data_type_upper = field.data_type.upper()
 
-                if child_names == {"element"}:
+                if data_type_upper.startswith("ARRAY"):
                     # Even deeper nesting - check if it's an array of structs
-                    deeper_element = field.children[0]
-                    if deeper_element.is_complex and deeper_element.children:
+                    deeper_element = field.children[0] if field.children else None
+                    if deeper_element and deeper_element.is_complex and deeper_element.children:
                         # Recursively handle even deeper ARRAY<STRUCT>
                         deeper_transform = self._build_nested_array_of_struct_in_array(
                             field, nested_lambda_var, field.name, depth + 1
@@ -208,8 +210,8 @@ class SQLGenerator:
                     else:
                         # ARRAY<primitive>
                         field_expressions.append(f"{field_ref} AS `{field.name}`")
-                elif child_names == {"key", "value"}:
-                    # MAP
+                elif data_type_upper.startswith("MAP"):
+                    # MAP - reference as-is
                     field_expressions.append(f"{field_ref} AS `{field.name}`")
                 else:
                     # Nested STRUCT within this nested array element
@@ -258,10 +260,10 @@ class SQLGenerator:
             child_ref = f"{lambda_var}.`{column.name}`.`{child.name}`"
 
             if child.is_complex and child.children:
-                child_names = {c.name for c in child.children}
+                # Use data_type to distinguish between ARRAY, MAP, and STRUCT
+                data_type_upper = child.data_type.upper()
 
-                # Handle nested complex types
-                if child_names == {"element"} or child_names == {"key", "value"}:
+                if data_type_upper.startswith("ARRAY") or data_type_upper.startswith("MAP"):
                     # Array or Map - reference as-is
                     field_expressions.append(f"{child_ref} AS `{child.name}`")
                 else:
@@ -291,12 +293,12 @@ class SQLGenerator:
             child_path = f"{base_path}.{child.name}"
 
             if child.is_complex and child.children:
-                child_names = {c.name for c in child.children}
+                # Use data_type to distinguish between ARRAY, MAP, and STRUCT
+                data_type_upper = child.data_type.upper()
 
-                # ARRAY - check if it contains structs
-                if child_names == {"element"}:
-                    element_child = child.children[0]
-                    if element_child.is_complex and element_child.children:
+                if data_type_upper.startswith("ARRAY"):
+                    element_child = child.children[0] if child.children else None
+                    if element_child and element_child.is_complex and element_child.children:
                         # ARRAY<STRUCT<...>> within a struct field
                         array_expr = self._build_array_of_struct_in_struct(child, child_path)
                         field_expressions.append(f"{array_expr} AS `{child.name}`")
@@ -304,7 +306,7 @@ class SQLGenerator:
                         # ARRAY<primitive>
                         field_expr = self._quote_column_path(child_path)
                         field_expressions.append(f"{field_expr} AS `{child.name}`")
-                elif child_names == {"key", "value"}:
+                elif data_type_upper.startswith("MAP"):
                     # MAP - reference as-is
                     field_expr = self._quote_column_path(child_path)
                     field_expressions.append(f"{field_expr} AS `{child.name}`")
@@ -341,11 +343,13 @@ class SQLGenerator:
             field_ref = f"item.`{field.name}`"
 
             if field.is_complex and field.children:
-                child_names = {c.name for c in field.children}
-                if child_names == {"element"}:
+                # Use data_type to distinguish between ARRAY, MAP, and STRUCT
+                data_type_upper = field.data_type.upper()
+
+                if data_type_upper.startswith("ARRAY"):
                     # Check if it's an array of structs (nested)
-                    nested_element = field.children[0]
-                    if nested_element.is_complex and nested_element.children:
+                    nested_element = field.children[0] if field.children else None
+                    if nested_element and nested_element.is_complex and nested_element.children:
                         # Nested ARRAY<STRUCT> - use nested TRANSFORM
                         nested_transform = self._build_nested_array_of_struct_in_array(
                             field, "item", field.name, depth=0
@@ -354,11 +358,11 @@ class SQLGenerator:
                     else:
                         # ARRAY<primitive>
                         field_expressions.append(f"{field_ref} AS `{field.name}`")
-                elif child_names == {"key", "value"}:
-                    # MAP
+                elif data_type_upper.startswith("MAP"):
+                    # MAP - reference as-is
                     field_expressions.append(f"{field_ref} AS `{field.name}`")
                 else:
-                    # Nested struct
+                    # Nested STRUCT
                     nested_struct_expr = self._build_nested_struct_in_array(field, "item")
                     field_expressions.append(f"{nested_struct_expr} AS `{field.name}`")
             else:
