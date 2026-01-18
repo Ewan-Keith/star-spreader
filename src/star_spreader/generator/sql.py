@@ -140,9 +140,11 @@ class SQLGenerator:
                     # Check if it's an array of structs (nested)
                     nested_element = field.children[0]
                     if nested_element.is_complex and nested_element.children:
-                        # Nested ARRAY<STRUCT> - we need nested TRANSFORM
-                        # For now, reference as-is (can be enhanced later for deeper nesting)
-                        field_expressions.append(f"{field_ref} AS `{field.name}`")
+                        # Nested ARRAY<STRUCT> - we need nested TRANSFORM with different lambda var
+                        nested_transform = self._build_nested_array_of_struct_in_array(
+                            field, "item", field.name, depth=0
+                        )
+                        field_expressions.append(f"{nested_transform} AS `{field.name}`")
                     else:
                         # ARRAY<primitive>
                         field_expressions.append(f"{field_ref} AS `{field.name}`")
@@ -161,6 +163,82 @@ class SQLGenerator:
         array_path = self._quote_column_path(base_path)
 
         return f"TRANSFORM({array_path}, item -> {struct_expr})"
+
+    def _build_nested_array_of_struct_in_array(
+        self, column: ColumnInfo, outer_lambda_var: str, field_name: str, depth: int = 0
+    ) -> str:
+        """Build a nested TRANSFORM expression for ARRAY<STRUCT> within an array element.
+
+        Args:
+            column: The ColumnInfo for the nested array column
+            outer_lambda_var: The lambda variable from the outer TRANSFORM (e.g., 'item')
+            field_name: The field name containing this nested array
+            depth: Current nesting depth (used to generate unique lambda variable names)
+
+        Returns:
+            A nested TRANSFORM() expression
+        """
+        if not column.children:
+            return f"{outer_lambda_var}.`{field_name}`"
+
+        element_child = next((c for c in column.children if c.name == "element"), None)
+        if not element_child or not element_child.children:
+            return f"{outer_lambda_var}.`{field_name}`"
+
+        # Generate unique lambda variable name based on depth
+        # 'item' -> 'item2' -> 'item3' -> 'item4' etc.
+        nested_lambda_var = self._generate_lambda_var(depth + 1)
+
+        field_expressions = []
+        for field in element_child.children:
+            field_ref = f"{nested_lambda_var}.`{field.name}`"
+
+            if field.is_complex and field.children:
+                child_names = {c.name for c in field.children}
+
+                if child_names == {"element"}:
+                    # Even deeper nesting - check if it's an array of structs
+                    deeper_element = field.children[0]
+                    if deeper_element.is_complex and deeper_element.children:
+                        # Recursively handle even deeper ARRAY<STRUCT>
+                        deeper_transform = self._build_nested_array_of_struct_in_array(
+                            field, nested_lambda_var, field.name, depth + 1
+                        )
+                        field_expressions.append(f"{deeper_transform} AS `{field.name}`")
+                    else:
+                        # ARRAY<primitive>
+                        field_expressions.append(f"{field_ref} AS `{field.name}`")
+                elif child_names == {"key", "value"}:
+                    # MAP
+                    field_expressions.append(f"{field_ref} AS `{field.name}`")
+                else:
+                    # Nested STRUCT within this nested array element
+                    nested_struct_expr = self._build_nested_struct_in_array(
+                        field, nested_lambda_var
+                    )
+                    field_expressions.append(f"{nested_struct_expr} AS `{field.name}`")
+            else:
+                # Simple field
+                field_expressions.append(f"{field_ref} AS `{field.name}`")
+
+        struct_expr = f"STRUCT({', '.join(field_expressions)})"
+        array_ref = f"{outer_lambda_var}.`{field_name}`"
+
+        return f"TRANSFORM({array_ref}, {nested_lambda_var} -> {struct_expr})"
+
+    def _generate_lambda_var(self, depth: int) -> str:
+        """Generate a unique lambda variable name based on nesting depth.
+
+        Args:
+            depth: The nesting depth (0 for 'item', 1 for 'item2', 2 for 'item3', etc.)
+
+        Returns:
+            Lambda variable name (e.g., 'item', 'item2', 'item3')
+        """
+        if depth == 0:
+            return "item"
+        else:
+            return f"item{depth + 1}"
 
     def _build_nested_struct_in_array(self, column: ColumnInfo, lambda_var: str) -> str:
         """Build a STRUCT expression for a struct nested within an array element.
@@ -264,7 +342,20 @@ class SQLGenerator:
 
             if field.is_complex and field.children:
                 child_names = {c.name for c in field.children}
-                if child_names == {"element"} or child_names == {"key", "value"}:
+                if child_names == {"element"}:
+                    # Check if it's an array of structs (nested)
+                    nested_element = field.children[0]
+                    if nested_element.is_complex and nested_element.children:
+                        # Nested ARRAY<STRUCT> - use nested TRANSFORM
+                        nested_transform = self._build_nested_array_of_struct_in_array(
+                            field, "item", field.name, depth=0
+                        )
+                        field_expressions.append(f"{nested_transform} AS `{field.name}`")
+                    else:
+                        # ARRAY<primitive>
+                        field_expressions.append(f"{field_ref} AS `{field.name}`")
+                elif child_names == {"key", "value"}:
+                    # MAP
                     field_expressions.append(f"{field_ref} AS `{field.name}`")
                 else:
                     # Nested struct
