@@ -108,9 +108,9 @@ def run_end_to_end_example(
     # Step 3: Generate explicit SELECT statement
     # -------------------------------------------------------------------------
     # The SQLGenerator expands SELECT * into an explicit column list.
-    # For STRUCT fields, it generates dotted notation (e.g., address.street)
-    # with appropriate aliases (e.g., AS address_street).
-    # Arrays are included as-is without expansion.
+    # For STRUCT fields, it explicitly selects all nested fields and reconstructs
+    # them using STRUCT() to produce output identical to what SELECT * would return.
+    # ARRAY and MAP types are referenced as-is.
     # -------------------------------------------------------------------------
     print("\nStep 3: Generating explicit SELECT statement...")
     try:

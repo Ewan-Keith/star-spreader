@@ -268,8 +268,8 @@ class ExplainValidator:
     def _normalize_plan(self, plan: str) -> str:
         """Normalize a plan string for comparison.
 
-        Removes irrelevant differences like extra whitespace, aliases, and
-        formatting variations.
+        Removes irrelevant differences like extra whitespace and internal identifiers,
+        but preserves structural differences like column lists and projections.
 
         Args:
             plan: The plan text to normalize.
@@ -281,14 +281,15 @@ class ExplainValidator:
         normalized = plan.lower()
 
         # Normalize whitespace (collapse multiple spaces, normalize line endings)
+        # but preserve structure by keeping single spaces
         normalized = re.sub(r"\s+", " ", normalized)
 
-        # Remove common aliases and temporary identifiers that might differ
+        # Remove internal temporary identifiers that Spark generates
         # but don't affect logical equivalence
         # Example: _tmp_123 or _gen_456
         normalized = re.sub(r"_(?:tmp|gen)_\d+", "_temp", normalized)
 
-        # Remove specific object IDs or hashes that might differ
+        # Remove specific object IDs or hashes that Spark assigns
         normalized = re.sub(r"#\d+", "#id", normalized)
 
         # Strip leading/trailing whitespace

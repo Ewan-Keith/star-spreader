@@ -9,8 +9,9 @@ class SQLGenerator:
     """Generates explicit SELECT statements from table schema information.
 
     This class takes a TableSchema and generates a complete SELECT statement
-    that explicitly lists all columns, including expanded struct fields with
-    proper dotted notation and aliases.
+    that explicitly lists all fields (including nested struct members) and
+    reconstructs complex types using STRUCT(), ARRAY(), etc. to produce output
+    identical to SELECT *.
     """
 
     def __init__(self, table_schema: TableSchema):
@@ -22,14 +23,14 @@ class SQLGenerator:
         self.table_schema = table_schema
 
     def generate_select(self) -> str:
-        """Generate a complete SELECT statement with all columns explicitly listed.
+        """Generate a complete SELECT statement with all fields explicitly listed.
 
-        This method expands struct fields into dotted notation (e.g., parent.child)
-        and creates appropriate aliases. Array fields are included as-is.
+        This method explicitly selects all fields (including nested struct members)
+        and reconstructs complex types to produce output identical to SELECT *.
 
         Returns:
             A complete SELECT statement string with format:
-            SELECT col1, col2, struct1.field1 AS struct1_field1, ...
+            SELECT col1, col2, STRUCT(field1, field2) AS struct_col, ...
             FROM catalog.schema.table
         """
         column_expressions = self._expand_all_columns()
@@ -48,10 +49,10 @@ class SQLGenerator:
         return f"`{self.table_schema.catalog}`.`{self.table_schema.schema_name}`.`{self.table_schema.table_name}`"
 
     def _expand_all_columns(self) -> List[str]:
-        """Expand all columns including nested struct fields.
+        """Generate column expressions for all top-level columns.
 
         Returns:
-            List of column expression strings, including expanded struct fields
+            List of column expression strings for all top-level columns
         """
         expanded_columns = []
 
@@ -61,47 +62,73 @@ class SQLGenerator:
         return expanded_columns
 
     def _expand_column(self, column: ColumnInfo, parent_path: str = "") -> List[str]:
-        """Recursively expand a column, handling struct fields with dotted notation.
+        """Generate column expression, reconstructing structs with STRUCT().
 
         Args:
-            column: The ColumnInfo object to expand
+            column: The ColumnInfo object to process
             parent_path: The parent column path (for nested structs)
 
         Returns:
-            List of column expression strings. For simple columns, a single element.
-            For struct columns, multiple elements for each nested field.
-            For array/map columns, a single element (not expanded).
+            List containing a single column expression. For STRUCT columns, this will
+            be a STRUCT() constructor with all fields explicitly listed. For simple
+            columns, just the column reference.
         """
         current_path = f"{parent_path}.{column.name}" if parent_path else column.name
 
-        # Check if this is an ARRAY or MAP (should not be expanded)
+        # Only process top-level columns (no parent path)
+        if parent_path:
+            # Shouldn't reach here - this method is only called for top-level columns
+            return []
+
+        # Check if this is a STRUCT that needs reconstruction
         if column.is_complex and column.children:
-            # ARRAY columns have a single child named 'element'
-            # MAP columns have children named 'key' and 'value'
-            # These should not be expanded - include them as-is
             child_names = {child.name for child in column.children}
+
+            # ARRAY and MAP are referenced as-is (no reconstruction needed)
             if child_names == {"element"} or child_names == {"key", "value"}:
-                # Don't expand - treat as a simple column
-                quoted_path = self._quote_column_path(current_path)
-                if parent_path:
-                    alias = self._create_alias(current_path)
-                    return [f"{quoted_path} AS {alias}"]
-                else:
-                    return [quoted_path]
+                return [self._quote_column_path(column.name)]
 
-            # STRUCT columns - expand recursively
-            expanded = []
-            for child in column.children:
-                expanded.extend(self._expand_column(child, current_path))
-            return expanded
+            # STRUCT - reconstruct with STRUCT()
+            struct_expr = self._build_struct_expression(column, column.name)
+            return [f"{struct_expr} AS {self._quote_column_path(column.name)}"]
         else:
-            quoted_path = self._quote_column_path(current_path)
+            # Simple column - just reference it
+            return [self._quote_column_path(column.name)]
 
-            if parent_path:
-                alias = self._create_alias(current_path)
-                return [f"{quoted_path} AS {alias}"]
+    def _build_struct_expression(self, column: ColumnInfo, base_path: str) -> str:
+        """Recursively build a STRUCT() expression for a struct column.
+
+        Args:
+            column: The ColumnInfo for the struct
+            base_path: The path to this struct (e.g., 'address' or 'person.contact')
+
+        Returns:
+            A STRUCT() expression like: STRUCT(field1, field2, STRUCT(...) AS nested)
+        """
+        if not column.children:
+            return self._quote_column_path(base_path)
+
+        field_expressions = []
+        for child in column.children:
+            child_path = f"{base_path}.{child.name}"
+
+            if child.is_complex and child.children:
+                child_names = {c.name for c in child.children}
+
+                # ARRAY or MAP - reference as-is
+                if child_names == {"element"} or child_names == {"key", "value"}:
+                    field_expr = self._quote_column_path(child_path)
+                    field_expressions.append(f"{field_expr} AS `{child.name}`")
+                else:
+                    # Nested STRUCT - recurse
+                    nested_struct = self._build_struct_expression(child, child_path)
+                    field_expressions.append(f"{nested_struct} AS `{child.name}`")
             else:
-                return [quoted_path]
+                # Simple field
+                field_expr = self._quote_column_path(child_path)
+                field_expressions.append(f"{field_expr} AS `{child.name}`")
+
+        return f"STRUCT({', '.join(field_expressions)})"
 
     def _quote_column_path(self, path: str) -> str:
         """Quote a column path with backticks for Databricks compatibility.

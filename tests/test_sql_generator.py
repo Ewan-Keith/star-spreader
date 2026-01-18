@@ -56,9 +56,7 @@ def test_struct_column():
     result = generator.generate_select()
 
     expected = """SELECT `id`,
-       `address`.`street` AS `address_street`,
-       `address`.`city` AS `address_city`,
-       `address`.`zip` AS `address_zip`
+       STRUCT(`address`.`street` AS `street`, `address`.`city` AS `city`, `address`.`zip` AS `zip`) AS `address`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 
     assert result == expected
@@ -102,9 +100,7 @@ def test_nested_struct():
     result = generator.generate_select()
 
     expected = """SELECT `id`,
-       `person`.`name` AS `person_name`,
-       `person`.`contact`.`email` AS `person_contact_email`,
-       `person`.`contact`.`phone` AS `person_contact_phone`
+       STRUCT(`person`.`name` AS `name`, STRUCT(`person`.`contact`.`email` AS `email`, `person`.`contact`.`phone` AS `phone`) AS `contact`) AS `person`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 
     assert result == expected
@@ -166,7 +162,9 @@ def test_mixed_columns():
                 data_type="ARRAY<STRING>",
                 is_complex=True,
                 nullable=True,
-                children=None,
+                children=[
+                    ColumnInfo(name="element", data_type="STRING", is_complex=False, nullable=True),
+                ],
             ),
         ],
     )
@@ -176,8 +174,7 @@ def test_mixed_columns():
 
     expected = """SELECT `id`,
        `name`,
-       `metadata`.`created_at` AS `metadata_created_at`,
-       `metadata`.`updated_at` AS `metadata_updated_at`,
+       STRUCT(`metadata`.`created_at` AS `created_at`, `metadata`.`updated_at` AS `updated_at`) AS `metadata`,
        `tags`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 

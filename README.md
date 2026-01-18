@@ -5,8 +5,8 @@ Convert `SELECT *` queries into explicit column listings by fetching schema info
 ## Features
 
 - **Schema Fetching**: Retrieve complete table schemas from Databricks Unity Catalog
-- **Complex Type Support**: Handle nested types (STRUCT, ARRAY, MAP) with proper field expansion
-- **SQL Generation**: Automatically generate explicit SELECT statements with proper column aliases
+- **Complex Type Support**: Handle nested types (STRUCT, ARRAY, MAP) with explicit field selection and reconstruction
+- **SQL Generation**: Automatically generate explicit SELECT statements that reconstruct structs to match SELECT * output
 - **Query Validation**: Verify equivalence using EXPLAIN plan comparison to ensure correctness
 
 ## Installation
@@ -266,11 +266,10 @@ from star_spreader.generator.sql import generate_select
 sql = generate_select(schema)
 print(sql)
 
-# Output example:
+# Output example (structs explicitly reconstructed to match SELECT *):
 # SELECT `id`,
 #        `name`,
-#        `profile`.`age` AS `profile_age`,
-#        `profile`.`email` AS `profile_email`,
+#        STRUCT(`profile`.`age` AS `age`, `profile`.`email` AS `email`) AS `profile`,
 #        `tags`
 # FROM `main`.`analytics`.`users`
 ```

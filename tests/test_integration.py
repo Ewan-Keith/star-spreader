@@ -150,24 +150,23 @@ FROM `main`.`default`.`users`"""
         assert address_col.children[3].name == "zip"
 
         # -------------------------------------------------------------------------
-        # Step 2: Generate explicit SELECT with expanded struct fields
+        # Step 2: Generate explicit SELECT with struct reconstruction
         # -------------------------------------------------------------------------
         generator = SQLGenerator(schema)
         explicit_select = generator.generate_select()
 
-        # Verify struct fields are expanded with dotted notation
-        assert "`address`.`street` AS `address_street`" in explicit_select
-        assert "`address`.`city` AS `address_city`" in explicit_select
-        assert "`address`.`state` AS `address_state`" in explicit_select
-        assert "`address`.`zip` AS `address_zip`" in explicit_select
+        # Verify struct fields are explicitly selected and reconstructed
+        assert "STRUCT(" in explicit_select
+        assert "`address`.`street`" in explicit_select
+        assert "`address`.`city`" in explicit_select
+        assert "`address`.`state`" in explicit_select
+        assert "`address`.`zip`" in explicit_select
+        assert "AS `address`" in explicit_select
 
         # Verify the complete SQL structure
         expected_sql = """SELECT `id`,
        `name`,
-       `address`.`street` AS `address_street`,
-       `address`.`city` AS `address_city`,
-       `address`.`state` AS `address_state`,
-       `address`.`zip` AS `address_zip`
+       STRUCT(`address`.`street` AS `street`, `address`.`city` AS `city`, `address`.`state` AS `state`, `address`.`zip` AS `zip`) AS `address`
 FROM `main`.`default`.`customers`"""
         assert explicit_select == expected_sql
 
@@ -217,15 +216,23 @@ FROM `main`.`default`.`customers`"""
         assert contact_col.children[1].name == "phone"
 
         # -------------------------------------------------------------------------
-        # Step 2: Generate explicit SELECT with nested struct expansion
+        # Step 2: Generate explicit SELECT with nested struct reconstruction
         # -------------------------------------------------------------------------
         generator = SQLGenerator(schema)
         explicit_select = generator.generate_select()
 
-        # Verify nested fields are expanded with full path
-        assert "`user`.`name` AS `user_name`" in explicit_select
-        assert "`user`.`contact`.`email` AS `user_contact_email`" in explicit_select
-        assert "`user`.`contact`.`phone` AS `user_contact_phone`" in explicit_select
+        # Verify nested struct fields are explicitly selected and reconstructed
+        assert "STRUCT(" in explicit_select
+        assert "`user`.`name`" in explicit_select
+        assert "`user`.`contact`.`email`" in explicit_select
+        assert "`user`.`contact`.`phone`" in explicit_select
+        assert "AS `user`" in explicit_select
+
+        # Verify the complete SQL structure
+        expected_sql = """SELECT `id`,
+       STRUCT(`user`.`name` AS `name`, STRUCT(`user`.`contact`.`email` AS `email`, `user`.`contact`.`phone` AS `phone`) AS `contact`) AS `user`
+FROM `main`.`default`.`profiles`"""
+        assert explicit_select == expected_sql
 
     def test_array_column_workflow(self) -> None:
         """Test end-to-end workflow with ARRAY columns."""
@@ -327,11 +334,10 @@ FROM `main`.`default`.`products`"""
         generator = SQLGenerator(schema)
         explicit_select = generator.generate_select()
 
-        # Verify struct is expanded but array is not
+        # Verify struct is reconstructed and array is preserved as-is
         expected_sql = """SELECT `id`,
        `name`,
-       `metadata`.`created_at` AS `metadata_created_at`,
-       `metadata`.`updated_at` AS `metadata_updated_at`,
+       STRUCT(`metadata`.`created_at` AS `created_at`, `metadata`.`updated_at` AS `updated_at`) AS `metadata`,
        `tags`
 FROM `main`.`analytics`.`events`"""
         assert explicit_select == expected_sql
@@ -544,7 +550,7 @@ FROM `main`.`analytics`.`events`"""
         assert len(schema.columns[4].children) == 2  # key and value
 
         # -------------------------------------------------------------------------
-        # Generate SQL and verify expansion
+        # Generate SQL and verify struct reconstruction
         # -------------------------------------------------------------------------
         generator = SQLGenerator(schema)
         explicit_select = generator.generate_select()
@@ -552,11 +558,21 @@ FROM `main`.`analytics`.`events`"""
         # Verify all column types are handled correctly
         assert "`id`" in explicit_select
         assert "`name`" in explicit_select
-        assert "`profile`.`bio` AS `profile_bio`" in explicit_select
-        assert "`profile`.`location`.`city` AS `profile_location_city`" in explicit_select
-        assert "`profile`.`location`.`country` AS `profile_location_country`" in explicit_select
-        assert "`tags`" in explicit_select  # Arrays not expanded
-        assert "`attributes`" in explicit_select  # Maps not expanded
+        assert "STRUCT(" in explicit_select  # Struct reconstructed
+        assert "`profile`.`bio`" in explicit_select
+        assert "`profile`.`location`.`city`" in explicit_select
+        assert "`profile`.`location`.`country`" in explicit_select
+        assert "`tags`" in explicit_select  # Array preserved as-is
+        assert "`attributes`" in explicit_select  # Map preserved as-is
+
+        # Verify the complete SQL structure
+        expected_sql = """SELECT `id`,
+       `name`,
+       STRUCT(`profile`.`bio` AS `bio`, STRUCT(`profile`.`location`.`city` AS `city`, `profile`.`location`.`country` AS `country`) AS `location`) AS `profile`,
+       `tags`,
+       `attributes`
+FROM `main`.`default`.`complex_table`"""
+        assert explicit_select == expected_sql
 
 
 class TestErrorHandling:
