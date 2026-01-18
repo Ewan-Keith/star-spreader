@@ -289,6 +289,69 @@ FROM `main`.`default`.`profiles`"""
 FROM `main`.`default`.`products`"""
         assert explicit_select == expected_sql
 
+    def test_array_of_struct_workflow(self) -> None:
+        """Test end-to-end workflow with ARRAY<STRUCT<...>> columns."""
+        # -------------------------------------------------------------------------
+        # Setup: Create mock table with array of structs
+        # -------------------------------------------------------------------------
+        mock_client = MagicMock(spec=WorkspaceClient)
+
+        # Mock table with array of structs: id, line_items (ARRAY<STRUCT<...>>)
+        mock_table = Mock(spec=TableInfo)
+        mock_table.columns = [
+            DatabricksColumnInfo(
+                name="id",
+                type_text="BIGINT",
+                type_name="BIGINT",
+                nullable=False,
+            ),
+            DatabricksColumnInfo(
+                name="line_items",
+                type_text="ARRAY<STRUCT<product_id: INT, quantity: INT, price: DECIMAL>>",
+                type_name="ARRAY",
+                nullable=True,
+            ),
+        ]
+        mock_client.tables.get.return_value = mock_table
+
+        # -------------------------------------------------------------------------
+        # Step 1: Fetch schema
+        # -------------------------------------------------------------------------
+        fetcher = DatabricksSchemaFetcher(workspace_client=mock_client)
+        schema = fetcher.fetch_schema("main", "default", "orders")
+
+        # Verify array of struct is parsed correctly
+        line_items_col = schema.columns[1]
+        assert line_items_col.is_complex
+        assert line_items_col.children is not None
+        assert len(line_items_col.children) == 1
+
+        # Verify the element is a struct
+        element_col = line_items_col.children[0]
+        assert element_col.name == "element"
+        assert element_col.is_complex
+        assert len(element_col.children) == 3
+
+        # -------------------------------------------------------------------------
+        # Step 2: Generate explicit SELECT with TRANSFORM
+        # -------------------------------------------------------------------------
+        generator = SQLGenerator(schema)
+        explicit_select = generator.generate_select()
+
+        # Verify TRANSFORM is used to reconstruct array of structs
+        assert "TRANSFORM(" in explicit_select
+        assert "`line_items`" in explicit_select
+        assert "item ->" in explicit_select
+        assert "item.`product_id`" in explicit_select
+        assert "item.`quantity`" in explicit_select
+        assert "item.`price`" in explicit_select
+
+        # Verify the complete SQL structure
+        expected_sql = """SELECT `id`,
+       TRANSFORM(`line_items`, item -> STRUCT(item.`product_id` AS `product_id`, item.`quantity` AS `quantity`, item.`price` AS `price`)) AS `line_items`
+FROM `main`.`default`.`orders`"""
+        assert explicit_select == expected_sql
+
     def test_mixed_complex_types_workflow(self) -> None:
         """Test workflow with a table containing mixed complex types."""
         # -------------------------------------------------------------------------

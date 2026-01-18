@@ -80,20 +80,120 @@ class SQLGenerator:
             # Shouldn't reach here - this method is only called for top-level columns
             return []
 
-        # Check if this is a STRUCT that needs reconstruction
+        # Check if this is a complex type
         if column.is_complex and column.children:
             child_names = {child.name for child in column.children}
 
-            # ARRAY and MAP are referenced as-is (no reconstruction needed)
-            if child_names == {"element"} or child_names == {"key", "value"}:
+            # ARRAY - check if it contains structs
+            if child_names == {"element"}:
+                element_child = column.children[0]
+                if element_child.is_complex and element_child.children:
+                    # ARRAY<STRUCT<...>> - use TRANSFORM to reconstruct each element
+                    array_expr = self._build_array_of_struct_expression(column, column.name)
+                    return [f"{array_expr} AS {self._quote_column_path(column.name)}"]
+                else:
+                    # ARRAY<primitive> - reference as-is
+                    return [self._quote_column_path(column.name)]
+
+            # MAP - reference as-is (no reconstruction needed)
+            elif child_names == {"key", "value"}:
                 return [self._quote_column_path(column.name)]
 
             # STRUCT - reconstruct with STRUCT()
-            struct_expr = self._build_struct_expression(column, column.name)
-            return [f"{struct_expr} AS {self._quote_column_path(column.name)}"]
+            else:
+                struct_expr = self._build_struct_expression(column, column.name)
+                return [f"{struct_expr} AS {self._quote_column_path(column.name)}"]
         else:
             # Simple column - just reference it
             return [self._quote_column_path(column.name)]
+
+    def _build_array_of_struct_expression(self, column: ColumnInfo, base_path: str) -> str:
+        """Build a TRANSFORM expression for ARRAY<STRUCT<...>> columns.
+
+        Args:
+            column: The ColumnInfo for the array column
+            base_path: The path to this array (e.g., 'line_items')
+
+        Returns:
+            A TRANSFORM() expression like: TRANSFORM(array_col, x -> STRUCT(x.field1 AS field1, ...))
+        """
+        # Get the element child (the struct definition)
+        if not column.children:
+            return self._quote_column_path(base_path)
+
+        element_child = next((c for c in column.children if c.name == "element"), None)
+        if not element_child or not element_child.children:
+            # Shouldn't happen, but fallback to simple reference
+            return self._quote_column_path(base_path)
+
+        # Build the STRUCT reconstruction for each array element
+        # Use 'item' as the lambda variable name
+        field_expressions = []
+        for field in element_child.children:
+            field_ref = f"item.`{field.name}`"
+
+            if field.is_complex and field.children:
+                child_names = {c.name for c in field.children}
+
+                # Nested array or map within the struct
+                if child_names == {"element"}:
+                    # Check if it's an array of structs (nested)
+                    nested_element = field.children[0]
+                    if nested_element.is_complex and nested_element.children:
+                        # Nested ARRAY<STRUCT> - we need nested TRANSFORM
+                        # For now, reference as-is (can be enhanced later for deeper nesting)
+                        field_expressions.append(f"{field_ref} AS `{field.name}`")
+                    else:
+                        # ARRAY<primitive>
+                        field_expressions.append(f"{field_ref} AS `{field.name}`")
+                elif child_names == {"key", "value"}:
+                    # MAP
+                    field_expressions.append(f"{field_ref} AS `{field.name}`")
+                else:
+                    # Nested STRUCT within the array element
+                    nested_struct_expr = self._build_nested_struct_in_array(field, "item")
+                    field_expressions.append(f"{nested_struct_expr} AS `{field.name}`")
+            else:
+                # Simple field
+                field_expressions.append(f"{field_ref} AS `{field.name}`")
+
+        struct_expr = f"STRUCT({', '.join(field_expressions)})"
+        array_path = self._quote_column_path(base_path)
+
+        return f"TRANSFORM({array_path}, item -> {struct_expr})"
+
+    def _build_nested_struct_in_array(self, column: ColumnInfo, lambda_var: str) -> str:
+        """Build a STRUCT expression for a struct nested within an array element.
+
+        Args:
+            column: The ColumnInfo for the nested struct
+            lambda_var: The lambda variable name (e.g., 'item')
+
+        Returns:
+            A STRUCT() expression using the lambda variable
+        """
+        if not column.children:
+            return f"{lambda_var}.`{column.name}`"
+
+        field_expressions = []
+        for child in column.children:
+            child_ref = f"{lambda_var}.`{column.name}`.`{child.name}`"
+
+            if child.is_complex and child.children:
+                child_names = {c.name for c in child.children}
+
+                # Handle nested complex types
+                if child_names == {"element"} or child_names == {"key", "value"}:
+                    # Array or Map - reference as-is
+                    field_expressions.append(f"{child_ref} AS `{child.name}`")
+                else:
+                    # Further nested STRUCT - could recurse but keeping simple for now
+                    field_expressions.append(f"{child_ref} AS `{child.name}`")
+            else:
+                # Simple field
+                field_expressions.append(f"{child_ref} AS `{child.name}`")
+
+        return f"STRUCT({', '.join(field_expressions)})"
 
     def _build_struct_expression(self, column: ColumnInfo, base_path: str) -> str:
         """Recursively build a STRUCT() expression for a struct column.
@@ -115,8 +215,19 @@ class SQLGenerator:
             if child.is_complex and child.children:
                 child_names = {c.name for c in child.children}
 
-                # ARRAY or MAP - reference as-is
-                if child_names == {"element"} or child_names == {"key", "value"}:
+                # ARRAY - check if it contains structs
+                if child_names == {"element"}:
+                    element_child = child.children[0]
+                    if element_child.is_complex and element_child.children:
+                        # ARRAY<STRUCT<...>> within a struct field
+                        array_expr = self._build_array_of_struct_in_struct(child, child_path)
+                        field_expressions.append(f"{array_expr} AS `{child.name}`")
+                    else:
+                        # ARRAY<primitive>
+                        field_expr = self._quote_column_path(child_path)
+                        field_expressions.append(f"{field_expr} AS `{child.name}`")
+                elif child_names == {"key", "value"}:
+                    # MAP - reference as-is
                     field_expr = self._quote_column_path(child_path)
                     field_expressions.append(f"{field_expr} AS `{child.name}`")
                 else:
@@ -129,6 +240,43 @@ class SQLGenerator:
                 field_expressions.append(f"{field_expr} AS `{child.name}`")
 
         return f"STRUCT({', '.join(field_expressions)})"
+
+    def _build_array_of_struct_in_struct(self, column: ColumnInfo, base_path: str) -> str:
+        """Build a TRANSFORM expression for ARRAY<STRUCT<...>> within a struct field.
+
+        Args:
+            column: The ColumnInfo for the array column
+            base_path: The path to this array (e.g., 'parent.child_array')
+
+        Returns:
+            A TRANSFORM() expression
+        """
+        if not column.children:
+            return self._quote_column_path(base_path)
+
+        element_child = next((c for c in column.children if c.name == "element"), None)
+        if not element_child or not element_child.children:
+            return self._quote_column_path(base_path)
+
+        field_expressions = []
+        for field in element_child.children:
+            field_ref = f"item.`{field.name}`"
+
+            if field.is_complex and field.children:
+                child_names = {c.name for c in field.children}
+                if child_names == {"element"} or child_names == {"key", "value"}:
+                    field_expressions.append(f"{field_ref} AS `{field.name}`")
+                else:
+                    # Nested struct
+                    nested_struct_expr = self._build_nested_struct_in_array(field, "item")
+                    field_expressions.append(f"{nested_struct_expr} AS `{field.name}`")
+            else:
+                field_expressions.append(f"{field_ref} AS `{field.name}`")
+
+        struct_expr = f"STRUCT({', '.join(field_expressions)})"
+        array_path = self._quote_column_path(base_path)
+
+        return f"TRANSFORM({array_path}, item -> {struct_expr})"
 
     def _quote_column_path(self, path: str) -> str:
         """Quote a column path with backticks for Databricks compatibility.

@@ -110,7 +110,9 @@ def run_end_to_end_example(
     # The SQLGenerator expands SELECT * into an explicit column list.
     # For STRUCT fields, it explicitly selects all nested fields and reconstructs
     # them using STRUCT() to produce output identical to what SELECT * would return.
-    # ARRAY and MAP types are referenced as-is.
+    # For ARRAY<STRUCT<...>>, it uses TRANSFORM() with a lambda to explicitly
+    # select and reconstruct each struct element in the array.
+    # Simple ARRAY and MAP types are referenced as-is.
     # -------------------------------------------------------------------------
     print("\nStep 3: Generating explicit SELECT statement...")
     try:

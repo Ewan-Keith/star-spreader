@@ -6,7 +6,9 @@ Convert `SELECT *` queries into explicit column listings by fetching schema info
 
 - **Schema Fetching**: Retrieve complete table schemas from Databricks Unity Catalog
 - **Complex Type Support**: Handle nested types (STRUCT, ARRAY, MAP) with explicit field selection and reconstruction
-- **SQL Generation**: Automatically generate explicit SELECT statements that reconstruct structs to match SELECT * output
+- **SQL Generation**: Automatically generate explicit SELECT statements that reconstruct complex types to match SELECT * output
+  - STRUCT fields: Uses `STRUCT()` constructor with all fields explicitly listed
+  - ARRAY<STRUCT<...>>: Uses `TRANSFORM()` with lambda to reconstruct each array element
 - **Query Validation**: Verify equivalence using EXPLAIN plan comparison to ensure correctness
 
 ## Installation
@@ -272,6 +274,15 @@ print(sql)
 #        STRUCT(`profile`.`age` AS `age`, `profile`.`email` AS `email`) AS `profile`,
 #        `tags`
 # FROM `main`.`analytics`.`users`
+
+# For ARRAY<STRUCT<...>>, uses TRANSFORM to reconstruct each element:
+# SELECT `order_id`,
+#        TRANSFORM(`line_items`, item -> STRUCT(
+#          item.`product_id` AS `product_id`,
+#          item.`quantity` AS `quantity`,
+#          item.`price` AS `price`
+#        )) AS `line_items`
+# FROM `main`.`analytics`.`orders`
 ```
 
 ### End-to-End with Validation
