@@ -1,7 +1,7 @@
 """Unit tests for the schema tree module.
 
-These tests demonstrate the new schema tree-based architecture and ensure
-the schema tree builder, nodes, and SQL generation work correctly.
+These tests demonstrate the schema tree-based architecture and ensure
+the schema tree nodes and SQL generation work correctly.
 """
 
 import pytest
@@ -12,9 +12,7 @@ from star_spreader.schema_tree.nodes import (
     StructNode,
     TableSchemaNode,
 )
-from star_spreader.schema_tree.builder import SchemaTreeBuilder
 from star_spreader.generator.sql_schema_tree import SchemaTreeSQLGenerator
-from star_spreader.schema.base import ColumnInfo, TableSchema
 
 
 def test_simple_column_ast():
@@ -69,96 +67,6 @@ def test_map_node_ast():
     assert map_node.name == "tags"
     assert map_node.key_type.data_type == "STRING"
     assert map_node.value_type.data_type == "INT"
-
-
-def test_ast_builder_simple_columns():
-    """Test schema tree builder with simple columns."""
-    schema = TableSchema(
-        catalog="test_cat",
-        schema_name="test_schema",
-        table_name="test_table",
-        columns=[
-            ColumnInfo(name="id", data_type="INT", is_complex=False, nullable=False),
-            ColumnInfo(name="name", data_type="STRING", is_complex=False, nullable=True),
-        ],
-    )
-
-    ast = SchemaTreeBuilder.build_from_table_schema(schema)
-
-    assert isinstance(ast, TableSchemaNode)
-    assert ast.catalog == "test_cat"
-    assert ast.schema_name == "test_schema"
-    assert ast.table_name == "test_table"
-    assert len(ast.columns) == 2
-    assert isinstance(ast.columns[0], SimpleColumnNode)
-    assert isinstance(ast.columns[1], SimpleColumnNode)
-
-
-def test_ast_builder_struct():
-    """Test schema tree builder with struct column."""
-    schema = TableSchema(
-        catalog="test_cat",
-        schema_name="test_schema",
-        table_name="test_table",
-        columns=[
-            ColumnInfo(
-                name="person",
-                data_type="STRUCT<name: STRING, age: INT>",
-                is_complex=True,
-                nullable=True,
-                children=[
-                    ColumnInfo(name="name", data_type="STRING", is_complex=False, nullable=True),
-                    ColumnInfo(name="age", data_type="INT", is_complex=False, nullable=True),
-                ],
-            )
-        ],
-    )
-
-    ast = SchemaTreeBuilder.build_from_table_schema(schema)
-
-    assert len(ast.columns) == 1
-    assert isinstance(ast.columns[0], StructNode)
-    assert ast.columns[0].name == "person"
-    assert len(ast.columns[0].fields) == 2
-
-
-def test_ast_builder_array_of_struct():
-    """Test schema tree builder with array of struct."""
-    schema = TableSchema(
-        catalog="test_cat",
-        schema_name="test_schema",
-        table_name="test_table",
-        columns=[
-            ColumnInfo(
-                name="items",
-                data_type="ARRAY<STRUCT<id: INT, name: STRING>>",
-                is_complex=True,
-                nullable=True,
-                children=[
-                    ColumnInfo(
-                        name="element",
-                        data_type="STRUCT<id: INT, name: STRING>",
-                        is_complex=True,
-                        nullable=True,
-                        children=[
-                            ColumnInfo(name="id", data_type="INT", is_complex=False, nullable=True),
-                            ColumnInfo(
-                                name="name", data_type="STRING", is_complex=False, nullable=True
-                            ),
-                        ],
-                    )
-                ],
-            )
-        ],
-    )
-
-    ast = SchemaTreeBuilder.build_from_table_schema(schema)
-
-    assert len(ast.columns) == 1
-    assert isinstance(ast.columns[0], ArrayNode)
-    assert ast.columns[0].name == "items"
-    assert isinstance(ast.columns[0].element_type, StructNode)
-    assert len(ast.columns[0].element_type.fields) == 2
 
 
 def test_ast_sql_generation_simple():
@@ -240,78 +148,3 @@ def test_ast_sql_generation_array_of_struct():
     assert "item ->" in sql
     assert "item.`id`" in sql
     assert "item.`name`" in sql
-
-
-def test_fetch_schema_ast_method():
-    """Test that SchemaFetcher.fetch_schema_ast() returns schema tree."""
-    from unittest.mock import Mock
-    from star_spreader.schema.base import SchemaFetcher
-
-    # Create a mock fetcher
-    class MockFetcher(SchemaFetcher):
-        def fetch_schema(self, catalog: str, schema: str, table: str) -> TableSchema:
-            return TableSchema(
-                catalog=catalog,
-                schema_name=schema,
-                table_name=table,
-                columns=[
-                    ColumnInfo(name="id", data_type="INT", is_complex=False, nullable=False),
-                ],
-            )
-
-    fetcher = MockFetcher()
-    ast = fetcher.fetch_schema_ast("cat", "schema", "table")
-
-    assert isinstance(ast, TableSchemaNode)
-    assert ast.catalog == "cat"
-    assert ast.schema_name == "schema"
-    assert ast.table_name == "table"
-    assert len(ast.columns) == 1
-    assert isinstance(ast.columns[0], SimpleColumnNode)
-
-
-def test_ast_distinguishes_map_from_struct_with_key_value():
-    """Test that schema tree builder correctly distinguishes MAP from STRUCT with key/value fields."""
-    # STRUCT with fields named "key" and "value"
-    struct_schema = TableSchema(
-        catalog="test",
-        schema_name="test",
-        table_name="test",
-        columns=[
-            ColumnInfo(
-                name="pair",
-                data_type="STRUCT<key: STRING, value: INT>",
-                is_complex=True,
-                nullable=True,
-                children=[
-                    ColumnInfo(name="key", data_type="STRING", is_complex=False, nullable=True),
-                    ColumnInfo(name="value", data_type="INT", is_complex=False, nullable=True),
-                ],
-            )
-        ],
-    )
-
-    ast = SchemaTreeBuilder.build_from_table_schema(struct_schema)
-    assert isinstance(ast.columns[0], StructNode)
-
-    # MAP type
-    map_schema = TableSchema(
-        catalog="test",
-        schema_name="test",
-        table_name="test",
-        columns=[
-            ColumnInfo(
-                name="tags",
-                data_type="MAP<STRING, INT>",
-                is_complex=True,
-                nullable=True,
-                children=[
-                    ColumnInfo(name="key", data_type="STRING", is_complex=False, nullable=False),
-                    ColumnInfo(name="value", data_type="INT", is_complex=False, nullable=True),
-                ],
-            )
-        ],
-    )
-
-    ast = SchemaTreeBuilder.build_from_table_schema(map_schema)
-    assert isinstance(ast.columns[0], MapNode)

@@ -15,7 +15,7 @@ from typing import Optional
 
 from databricks.sdk import WorkspaceClient
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
-from star_spreader.generator.sql import SQLGenerator
+from star_spreader.generator.sql_schema_tree import SchemaTreeSQLGenerator
 from star_spreader.validator.explain import ExplainValidator
 
 
@@ -78,23 +78,21 @@ def run_end_to_end_example(
     print("\nStep 2: Fetching table schema from Databricks...")
     try:
         fetcher = DatabricksSchemaFetcher(workspace_client=workspace)
-        table_schema = fetcher.fetch_schema(
+        schema_tree = fetcher.get_schema_tree(
             catalog=catalog,
             schema=schema_name,
             table=table_name,
         )
-        print(f"✓ Retrieved schema with {len(table_schema.columns)} columns")
+        print(f"✓ Retrieved schema with {len(schema_tree.columns)} columns")
 
         # Display column information
         print("\n  Columns found:")
-        for col in table_schema.columns:
+        for col in schema_tree.columns:
             nullable_str = "NULL" if col.nullable else "NOT NULL"
-            complex_str = " (complex)" if col.is_complex else ""
-            print(f"    - {col.name}: {col.data_type} {nullable_str}{complex_str}")
+            print(f"    - {col.name}: {col.data_type} {nullable_str}")
 
             # Show nested structure for complex types
-            if col.is_complex and col.children:
-                _print_nested_columns(col.children, indent=6)
+            _print_nested_columns(col, indent=6)
 
     except Exception as e:
         print(f"✗ Failed to fetch schema: {e}")
@@ -116,7 +114,7 @@ def run_end_to_end_example(
     # -------------------------------------------------------------------------
     print("\nStep 3: Generating explicit SELECT statement...")
     try:
-        generator = SQLGenerator(table_schema)
+        generator = SchemaTreeSQLGenerator(schema_tree)
         explicit_select = generator.generate_select()
         print("✓ Generated explicit SELECT statement")
         print("\n  Generated SQL:")
@@ -210,7 +208,7 @@ def run_end_to_end_example(
     print("WORKFLOW COMPLETE")
     print("=" * 80)
     print(f"\nOriginal query:  SELECT * FROM {full_table_name}")
-    print(f"Columns found:   {len(table_schema.columns)}")
+    print(f"Columns found:   {len(schema_tree.columns)}")
     print("Status:          Explicit SELECT generated successfully")
     print("\nNext steps:")
     print("  1. Review the generated SQL above")
@@ -219,20 +217,37 @@ def run_end_to_end_example(
     print("=" * 80)
 
 
-def _print_nested_columns(columns, indent: int = 0) -> None:
+def _print_nested_columns(node, indent: int = 0) -> None:
     """Helper function to recursively print nested column structures.
 
     Args:
-        columns: List of ColumnInfo objects to print
+        node: SchemaTreeNode to print (or skip if it's a simple node at top level)
         indent: Current indentation level (in spaces)
     """
+    from star_spreader.schema_tree.nodes import ArrayNode, MapNode, StructNode
+
+    if indent == 0:
+        # Top level - don't print the node itself, just recurse into children
+        pass
+
     prefix = " " * indent
-    for col in columns:
-        nullable_str = "NULL" if col.nullable else "NOT NULL"
-        complex_str = " (complex)" if col.is_complex else ""
-        print(f"{prefix}- {col.name}: {col.data_type} {nullable_str}{complex_str}")
-        if col.is_complex and col.children:
-            _print_nested_columns(col.children, indent + 2)
+
+    if isinstance(node, StructNode):
+        for field in node.fields:
+            nullable_str = "NULL" if field.nullable else "NOT NULL"
+            print(f"{prefix}- {field.name}: {field.data_type} {nullable_str}")
+            _print_nested_columns(field, indent + 2)
+    elif isinstance(node, ArrayNode):
+        nullable_str = "NULL" if node.element_type.nullable else "NOT NULL"
+        print(f"{prefix}- {node.element_type.name}: {node.element_type.data_type} {nullable_str}")
+        _print_nested_columns(node.element_type, indent + 2)
+    elif isinstance(node, MapNode):
+        key_nullable = "NULL" if node.key_type.nullable else "NOT NULL"
+        val_nullable = "NULL" if node.value_type.nullable else "NOT NULL"
+        print(f"{prefix}- {node.key_type.name}: {node.key_type.data_type} {key_nullable}")
+        print(f"{prefix}- {node.value_type.name}: {node.value_type.data_type} {val_nullable}")
+        _print_nested_columns(node.key_type, indent + 2)
+        _print_nested_columns(node.value_type, indent + 2)
 
 
 def main() -> None:

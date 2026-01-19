@@ -12,7 +12,6 @@ from star_spreader.schema_tree.nodes import (
     StructNode,
     TableSchemaNode,
 )
-from star_spreader.schema_tree.builder import SchemaTreeBuilder
 from star_spreader.schema_tree.visitor import SchemaTreeVisitor
 
 __all__ = [
@@ -22,6 +21,5 @@ __all__ = [
     "ArrayNode",
     "MapNode",
     "TableSchemaNode",
-    "SchemaTreeBuilder",
     "SchemaTreeVisitor",
 ]

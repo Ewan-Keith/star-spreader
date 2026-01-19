@@ -24,7 +24,7 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementState
 
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
-from star_spreader.generator.sql import SQLGenerator
+from star_spreader.generator.sql_schema_tree import generate_select_from_schema_tree
 from star_spreader.validator.explain import ExplainValidator
 
 
@@ -145,13 +145,12 @@ def validate_query_equivalence(
 
     Returns the validation result dictionary.
     """
-    # Step 1: Fetch schema
+    # Step 1: Fetch schema tree
     fetcher = DatabricksSchemaFetcher(workspace_client=workspace_client)
-    table_schema = fetcher.fetch_schema(catalog=catalog, schema=schema, table=table_name)
+    schema_tree = fetcher.get_schema_tree(catalog=catalog, schema=schema, table=table_name)
 
     # Step 2: Generate explicit SELECT
-    generator = SQLGenerator(table_schema)
-    explicit_query = generator.generate_select()
+    explicit_query = generate_select_from_schema_tree(schema_tree)
 
     # Step 3: Validate equivalence
     validator = ExplainValidator(

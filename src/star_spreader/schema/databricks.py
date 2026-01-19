@@ -2,7 +2,7 @@
 
 This module provides schema fetching capabilities for Databricks tables using the
 Databricks SDK. It handles complex types like STRUCT, ARRAY, and MAP by recursively
-parsing type strings and building nested ColumnInfo structures.
+parsing type strings and directly building schema tree nodes.
 """
 
 import re
@@ -11,7 +11,15 @@ from typing import List, Optional, Tuple
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.catalog import ColumnInfo as DatabricksColumnInfo
 
-from star_spreader.schema.base import ColumnInfo, SchemaFetcher, TableSchema
+from star_spreader.schema.base import SchemaFetcher
+from star_spreader.schema_tree.nodes import (
+    ArrayNode,
+    MapNode,
+    SchemaTreeNode,
+    SimpleColumnNode,
+    StructNode,
+    TableSchemaNode,
+)
 
 
 class DatabricksSchemaFetcher(SchemaFetcher):
@@ -49,11 +57,11 @@ class DatabricksSchemaFetcher(SchemaFetcher):
         else:
             raise ValueError("Either workspace_client or both host and token must be provided")
 
-    def fetch_schema(self, catalog: str, schema: str, table: str) -> TableSchema:
-        """Fetch schema information for a Databricks table.
+    def get_schema_tree(self, catalog: str, schema: str, table: str) -> TableSchemaNode:
+        """Fetch schema information for a Databricks table and return as schema tree.
 
         Uses the Databricks Unity Catalog API to retrieve full table metadata
-        including all columns and their types.
+        and directly converts it to a schema tree representation.
 
         Args:
             catalog: Catalog name (e.g., 'main', 'hive_metastore').
@@ -61,7 +69,7 @@ class DatabricksSchemaFetcher(SchemaFetcher):
             table: Table name.
 
         Returns:
-            Complete table schema with all columns including nested structures.
+            TableSchemaNode representing the complete table schema.
 
         Raises:
             Exception: If the table is not found or the API call fails.
@@ -72,28 +80,28 @@ class DatabricksSchemaFetcher(SchemaFetcher):
         # Fetch table information from Databricks
         table_info = self.workspace.tables.get(full_name=full_table_name)
 
-        # Parse columns from the table info
+        # Parse columns from the table info directly to schema tree nodes
         columns = []
         if table_info.columns:
             for db_column in table_info.columns:
-                column = self._parse_column(db_column)
-                columns.append(column)
+                column_node = self._parse_column(db_column)
+                columns.append(column_node)
 
-        return TableSchema(
+        return TableSchemaNode(
             catalog=catalog,
             schema_name=schema,
             table_name=table,
             columns=columns,
         )
 
-    def _parse_column(self, db_column: DatabricksColumnInfo) -> ColumnInfo:
-        """Parse a Databricks ColumnInfo into our ColumnInfo model.
+    def _parse_column(self, db_column: DatabricksColumnInfo) -> SchemaTreeNode:
+        """Parse a Databricks ColumnInfo into a schema tree node.
 
         Args:
             db_column: Column information from Databricks API.
 
         Returns:
-            Parsed ColumnInfo with nested structures for complex types.
+            SchemaTreeNode representing the column (SimpleColumnNode, StructNode, ArrayNode, or MapNode).
         """
         type_text = db_column.type_text or ""
         # Convert type_name to string - handle both enum and string types
@@ -103,23 +111,22 @@ class DatabricksSchemaFetcher(SchemaFetcher):
         else:
             type_name = type_text
 
-        # Determine if this is a complex type
         # Use type_text for complex type detection if available, as it has full definition
         type_for_check = type_text if type_text else type_name
-        is_complex = self._is_complex_type(type_for_check)
+        data_type = type_text or type_name
+        nullable = db_column.nullable or False
+        column_name = db_column.name or ""
 
-        # Parse children for complex types using type_text (which has full definition)
-        children = None
-        if is_complex:
-            children = self._parse_complex_type(type_text or type_name)
-
-        return ColumnInfo(
-            name=db_column.name or "",
-            data_type=type_text or type_name,
-            is_complex=is_complex,
-            children=children,
-            nullable=db_column.nullable or False,
-        )
+        # Determine if this is a complex type and return appropriate node
+        if self._is_complex_type(type_for_check):
+            return self._parse_complex_type(column_name, data_type, nullable)
+        else:
+            # Simple column
+            return SimpleColumnNode(
+                name=column_name,
+                data_type=data_type,
+                nullable=nullable,
+            )
 
     def _is_complex_type(self, type_name: str) -> bool:
         """Check if a type is complex (STRUCT, ARRAY, or MAP).
@@ -135,166 +142,189 @@ class DatabricksSchemaFetcher(SchemaFetcher):
         type_upper = str(type_name).upper().strip()
         return any(type_upper.startswith(prefix) for prefix in ["STRUCT<", "ARRAY<", "MAP<"])
 
-    def _parse_complex_type(self, type_text: str) -> Optional[List[ColumnInfo]]:
-        """Parse a complex type string into nested ColumnInfo objects.
+    def _parse_complex_type(self, name: str, type_text: str, nullable: bool) -> SchemaTreeNode:
+        """Parse a complex type string into a schema tree node.
 
         Handles STRUCT, ARRAY, and MAP types by recursively parsing their
         type definitions.
 
         Args:
+            name: The name of this column/field.
             type_text: The full type string (e.g., "STRUCT<field1: INT, field2: STRING>").
+            nullable: Whether this column accepts NULL values.
 
         Returns:
-            List of ColumnInfo objects representing the nested structure,
-            or None if parsing fails.
+            SchemaTreeNode (StructNode, ArrayNode, or MapNode) representing the complex type.
+
+        Raises:
+            ValueError: If the type_text doesn't match a known complex type pattern.
         """
         type_upper = type_text.upper().strip()
 
         if type_upper.startswith("STRUCT<"):
-            return self._parse_struct_type(type_text)
+            return self._parse_struct_type(name, type_text, nullable)
         elif type_upper.startswith("ARRAY<"):
-            return self._parse_array_type(type_text)
+            return self._parse_array_type(name, type_text, nullable)
         elif type_upper.startswith("MAP<"):
-            return self._parse_map_type(type_text)
+            return self._parse_map_type(name, type_text, nullable)
 
-        return None
+        raise ValueError(f"Unknown complex type: {type_text}")
 
-    def _parse_struct_type(self, type_text: str) -> List[ColumnInfo]:
-        """Parse a STRUCT type into a list of ColumnInfo objects.
+    def _parse_struct_type(self, name: str, type_text: str, nullable: bool) -> StructNode:
+        """Parse a STRUCT type into a StructNode.
 
         Example: "STRUCT<field1: INT, field2: STRUCT<nested: STRING>>"
 
         Args:
+            name: The name of this struct column.
             type_text: The STRUCT type string.
+            nullable: Whether this struct accepts NULL values.
 
         Returns:
-            List of ColumnInfo objects for each field in the struct.
+            StructNode with all fields as child nodes.
         """
         # Extract content between STRUCT< and >
         match = re.match(r"STRUCT<(.+)>", type_text, re.IGNORECASE | re.DOTALL)
         if not match:
-            return []
+            return StructNode(name=name, data_type=type_text, nullable=nullable, fields=[])
 
         fields_text = match.group(1)
-        fields = self._split_fields(fields_text)
+        field_defs = self._split_fields(fields_text)
 
-        columns = []
-        for field in fields:
+        field_nodes = []
+        for field_def in field_defs:
             # Parse field as "name: type"
-            field_parts = self._split_field_definition(field)
+            field_parts = self._split_field_definition(field_def)
             if field_parts:
-                name, field_type = field_parts
-                is_complex = self._is_complex_type(field_type)
-                children = None
-                if is_complex:
-                    children = self._parse_complex_type(field_type)
+                field_name, field_type = field_parts
 
-                columns.append(
-                    ColumnInfo(
-                        name=name,
+                # Check if field is complex and create appropriate node
+                if self._is_complex_type(field_type):
+                    field_node = self._parse_complex_type(field_name, field_type, nullable=True)
+                else:
+                    field_node = SimpleColumnNode(
+                        name=field_name,
                         data_type=field_type,
-                        is_complex=is_complex,
-                        children=children,
                         nullable=True,
                     )
-                )
+                field_nodes.append(field_node)
 
-        return columns
+        return StructNode(
+            name=name,
+            data_type=type_text,
+            nullable=nullable,
+            fields=field_nodes,
+        )
 
-    def _parse_array_type(self, type_text: str) -> List[ColumnInfo]:
-        """Parse an ARRAY type into a single element ColumnInfo.
+    def _parse_array_type(self, name: str, type_text: str, nullable: bool) -> ArrayNode:
+        """Parse an ARRAY type into an ArrayNode.
 
-        Arrays are represented as having a single child named 'element' with
-        the array's element type.
-
-        Example: "ARRAY<INT>" -> [ColumnInfo(name='element', data_type='INT')]
+        Example: "ARRAY<INT>" -> ArrayNode with SimpleColumnNode element
+        Example: "ARRAY<STRUCT<...>>" -> ArrayNode with StructNode element
 
         Args:
+            name: The name of this array column.
             type_text: The ARRAY type string.
+            nullable: Whether this array accepts NULL values.
 
         Returns:
-            List with a single ColumnInfo representing the array element type.
+            ArrayNode with the appropriate element type node.
         """
         # Extract content between ARRAY< and >
         match = re.match(r"ARRAY<(.+)>", type_text, re.IGNORECASE | re.DOTALL)
         if not match:
-            return []
+            # Fallback for invalid array definition
+            element_node = SimpleColumnNode(name="element", data_type="UNKNOWN", nullable=True)
+            return ArrayNode(
+                name=name,
+                data_type=type_text,
+                nullable=nullable,
+                element_type=element_node,
+            )
 
         element_type = match.group(1).strip()
-        is_complex = self._is_complex_type(element_type)
-        children = None
-        if is_complex:
-            children = self._parse_complex_type(element_type)
 
-        return [
-            ColumnInfo(
+        # Create the element node
+        if self._is_complex_type(element_type):
+            element_node = self._parse_complex_type("element", element_type, nullable=True)
+        else:
+            element_node = SimpleColumnNode(
                 name="element",
                 data_type=element_type,
-                is_complex=is_complex,
-                children=children,
                 nullable=True,
             )
-        ]
 
-    def _parse_map_type(self, type_text: str) -> List[ColumnInfo]:
-        """Parse a MAP type into key and value ColumnInfo objects.
+        return ArrayNode(
+            name=name,
+            data_type=type_text,
+            nullable=nullable,
+            element_type=element_node,
+        )
 
-        Maps are represented as having two children: 'key' and 'value'.
+    def _parse_map_type(self, name: str, type_text: str, nullable: bool) -> MapNode:
+        """Parse a MAP type into a MapNode.
 
-        Example: "MAP<STRING, INT>" -> [
-            ColumnInfo(name='key', data_type='STRING'),
-            ColumnInfo(name='value', data_type='INT')
-        ]
+        Example: "MAP<STRING, INT>" -> MapNode with key and value nodes
 
         Args:
+            name: The name of this map column.
             type_text: The MAP type string.
+            nullable: Whether this map accepts NULL values.
 
         Returns:
-            List with two ColumnInfo objects for key and value.
+            MapNode with key and value type nodes.
         """
         # Extract content between MAP< and >
         match = re.match(r"MAP<(.+)>", type_text, re.IGNORECASE | re.DOTALL)
         if not match:
-            return []
+            # Fallback for invalid map definition
+            key_node = SimpleColumnNode(name="key", data_type="UNKNOWN", nullable=False)
+            value_node = SimpleColumnNode(name="value", data_type="UNKNOWN", nullable=True)
+            return MapNode(
+                name=name,
+                data_type=type_text,
+                nullable=nullable,
+                key_type=key_node,
+                value_type=value_node,
+            )
 
         content = match.group(1).strip()
 
         # Split into key and value types
-        # This is tricky because the value type might be complex
         parts = self._split_map_key_value(content)
         if len(parts) != 2:
-            return []
+            # Fallback
+            key_node = SimpleColumnNode(name="key", data_type="UNKNOWN", nullable=False)
+            value_node = SimpleColumnNode(name="value", data_type="UNKNOWN", nullable=True)
+            return MapNode(
+                name=name,
+                data_type=type_text,
+                nullable=nullable,
+                key_type=key_node,
+                value_type=value_node,
+            )
 
         key_type, value_type = parts
 
-        # Parse key
-        key_is_complex = self._is_complex_type(key_type)
-        key_children = None
-        if key_is_complex:
-            key_children = self._parse_complex_type(key_type)
+        # Create key node
+        if self._is_complex_type(key_type):
+            key_node = self._parse_complex_type("key", key_type, nullable=False)
+        else:
+            key_node = SimpleColumnNode(name="key", data_type=key_type, nullable=False)
 
-        # Parse value
-        value_is_complex = self._is_complex_type(value_type)
-        value_children = None
-        if value_is_complex:
-            value_children = self._parse_complex_type(value_type)
+        # Create value node
+        if self._is_complex_type(value_type):
+            value_node = self._parse_complex_type("value", value_type, nullable=True)
+        else:
+            value_node = SimpleColumnNode(name="value", data_type=value_type, nullable=True)
 
-        return [
-            ColumnInfo(
-                name="key",
-                data_type=key_type,
-                is_complex=key_is_complex,
-                children=key_children,
-                nullable=False,  # Map keys are typically not nullable
-            ),
-            ColumnInfo(
-                name="value",
-                data_type=value_type,
-                is_complex=value_is_complex,
-                children=value_children,
-                nullable=True,
-            ),
-        ]
+        return MapNode(
+            name=name,
+            data_type=type_text,
+            nullable=nullable,
+            key_type=key_node,
+            value_type=value_node,
+        )
 
     def _split_fields(self, fields_text: str) -> List[str]:
         """Split a struct's field definitions, respecting nested brackets.

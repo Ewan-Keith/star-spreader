@@ -1,18 +1,32 @@
 """Star Spreader - Convert SELECT * to explicit column lists."""
 
 from star_spreader.config import Config, load_config
-from star_spreader.generator.sql import SQLGenerator, generate_select
-from star_spreader.schema.base import ColumnInfo, TableSchema
+from star_spreader.generator.sql_schema_tree import (
+    SchemaTreeSQLGenerator,
+    generate_select_from_schema_tree,
+)
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
+from star_spreader.schema_tree.nodes import (
+    ArrayNode,
+    MapNode,
+    SchemaTreeNode,
+    SimpleColumnNode,
+    StructNode,
+    TableSchemaNode,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
     "Config",
     "load_config",
-    "SQLGenerator",
-    "generate_select",
-    "ColumnInfo",
-    "TableSchema",
+    "SchemaTreeSQLGenerator",
+    "generate_select_from_schema_tree",
     "DatabricksSchemaFetcher",
+    "SchemaTreeNode",
+    "SimpleColumnNode",
+    "StructNode",
+    "ArrayNode",
+    "MapNode",
+    "TableSchemaNode",
 ]

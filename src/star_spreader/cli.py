@@ -14,9 +14,9 @@ from rich.table import Table as RichTable
 from typing_extensions import Annotated
 
 from star_spreader.config import Config
-from star_spreader.generator.sql import generate_select
-from star_spreader.schema.base import ColumnInfo, TableSchema
+from star_spreader.generator.sql_schema_tree import generate_select_from_schema_tree
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
+from star_spreader.schema_tree.nodes import SchemaTreeNode
 from star_spreader.validator.explain import ExplainValidator
 
 app = typer.Typer(
@@ -75,25 +75,35 @@ def get_config(
     return config
 
 
-def format_column_for_display(column: ColumnInfo, indent: int = 0) -> list[tuple[str, str, str]]:
+def format_column_for_display(
+    column: SchemaTreeNode, indent: int = 0
+) -> list[tuple[str, str, str]]:
     """Format a column and its children for display.
 
     Args:
-        column: The column to format
+        column: The schema tree node to format
         indent: Current indentation level
 
     Returns:
         List of tuples (name, type, nullable) formatted for display
     """
+    from star_spreader.schema_tree.nodes import ArrayNode, MapNode, StructNode
+
     rows = []
     prefix = "  " * indent
     nullable_str = "NULL" if column.nullable else "NOT NULL"
 
     rows.append((f"{prefix}{column.name}", column.data_type, nullable_str))
 
-    if column.children:
-        for child in column.children:
-            rows.extend(format_column_for_display(child, indent + 1))
+    # Handle different node types
+    if isinstance(column, StructNode):
+        for field in column.fields:
+            rows.extend(format_column_for_display(field, indent + 1))
+    elif isinstance(column, ArrayNode):
+        rows.extend(format_column_for_display(column.element_type, indent + 1))
+    elif isinstance(column, MapNode):
+        rows.extend(format_column_for_display(column.key_type, indent + 1))
+        rows.extend(format_column_for_display(column.value_type, indent + 1))
 
     return rows
 
@@ -134,11 +144,11 @@ def generate(
 
         # Fetch schema
         console.print(f"[blue]Fetching schema for {table_name}...[/blue]")
-        table_schema = fetcher.fetch_schema(catalog, schema, table)
+        schema_tree = fetcher.get_schema_tree(catalog, schema, table)
 
         # Generate SELECT statement
         console.print("[blue]Generating SELECT statement...[/blue]")
-        select_statement = generate_select(table_schema)
+        select_statement = generate_select_from_schema_tree(schema_tree)
 
         # Output result
         if output:
@@ -205,11 +215,11 @@ def validate(
 
         # Fetch schema
         console.print(f"[blue]Fetching schema for {table_name}...[/blue]")
-        table_schema = fetcher.fetch_schema(catalog, schema, table)
+        schema_tree = fetcher.get_schema_tree(catalog, schema, table)
 
         # Generate explicit SELECT statement
         console.print("[blue]Generating explicit SELECT statement...[/blue]")
-        explicit_query = generate_select(table_schema)
+        explicit_query = generate_select_from_schema_tree(schema_tree)
 
         # Create SELECT * query
         select_star_query = f"SELECT * FROM `{catalog}`.`{schema}`.`{table}`"
@@ -306,7 +316,7 @@ def show_schema(
 
         # Fetch schema
         console.print(f"[blue]Fetching schema for {table_name}...[/blue]")
-        table_schema = fetcher.fetch_schema(catalog, schema, table)
+        schema_tree = fetcher.get_schema_tree(catalog, schema, table)
 
         # Format output based on format option
         if format == "table":
@@ -316,7 +326,7 @@ def show_schema(
             rich_table.add_column("Data Type", style="magenta")
             rich_table.add_column("Nullable", style="yellow")
 
-            for column in table_schema.columns:
+            for column in schema_tree.columns:
                 rows = format_column_for_display(column)
                 for name, dtype, nullable in rows:
                     rich_table.add_row(name, dtype, nullable)
@@ -328,7 +338,7 @@ def show_schema(
                 text_output.append(f"Schema: {table_name}")
                 text_output.append("=" * 80)
                 text_output.append("")
-                for column in table_schema.columns:
+                for column in schema_tree.columns:
                     rows = format_column_for_display(column)
                     for name, dtype, nullable in rows:
                         text_output.append(f"{name:40} {dtype:30} {nullable}")
@@ -341,7 +351,7 @@ def show_schema(
             lines.append(f"Table: {catalog}.{schema}.{table}")
             lines.append("=" * 80)
             lines.append("")
-            for column in table_schema.columns:
+            for column in schema_tree.columns:
                 rows = format_column_for_display(column)
                 for name, dtype, nullable in rows:
                     lines.append(f"{name:40} {dtype:30} {nullable}")
