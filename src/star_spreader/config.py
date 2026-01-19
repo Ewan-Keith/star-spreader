@@ -21,7 +21,7 @@ class Config(BaseSettings):
     Environment Variables:
         DATABRICKS_HOST: Databricks workspace URL (e.g., 'https://company.cloud.databricks.com')
         DATABRICKS_TOKEN: Personal access token for authentication
-        DATABRICKS_WAREHOUSE_ID: SQL warehouse ID for query execution and validation
+        DATABRICKS_WAREHOUSE_ID: SQL warehouse HTTP path (e.g., '/sql/1.0/warehouses/abc123') or ID
         DATABRICKS_CATALOG: Default catalog name (e.g., 'main', 'hive_metastore')
         DATABRICKS_SCHEMA: Default schema/database name
 

@@ -145,7 +145,7 @@ def run_end_to_end_example(
     if not warehouse_id:
         print("⚠ Skipping validation: warehouse_id not provided")
         print("\n  To enable validation, provide a warehouse_id parameter:")
-        print("    export DATABRICKS_WAREHOUSE_ID=your-warehouse-id")
+        print("    export DATABRICKS_WAREHOUSE_ID=/sql/1.0/warehouses/your-warehouse-id")
         print("\n  The explicit query has been generated but not validated.")
     else:
         try:
@@ -260,7 +260,7 @@ def main() -> None:
         print("  export DATABRICKS_TABLE=users")
         print("  export DATABRICKS_CATALOG=production")
         print("  export DATABRICKS_SCHEMA=analytics")
-        print("  export DATABRICKS_WAREHOUSE_ID=1234567890abcdef")
+        print("  export DATABRICKS_WAREHOUSE_ID=/sql/1.0/warehouses/1234567890abcdef")
         print("  python examples/end_to_end_example.py")
         sys.exit(1)
 

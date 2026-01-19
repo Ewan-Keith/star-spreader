@@ -48,7 +48,7 @@ star-spreader generate main.default.my_table --output query.sql
 star-spreader show-schema main.default.my_table
 
 # Validate generated query against SELECT *
-star-spreader validate main.default.my_table --warehouse-id abc123
+star-spreader validate main.default.my_table --warehouse-id /sql/1.0/warehouses/abc123
 ```
 
 ### Python API
@@ -84,9 +84,11 @@ Star Spreader uses environment variables for configuration. Create a `.env` file
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
 DATABRICKS_TOKEN=dapi1234567890abcdef
 
-# Optional: For query validation (can be ID or HTTP path from UI)
-DATABRICKS_WAREHOUSE_ID=abc123xyz
-# Or use the HTTP path: DATABRICKS_WAREHOUSE_ID=/sql/1.0/warehouses/abc123xyz
+# Optional: For query validation
+# Use the full HTTP path (recommended - copy from Databricks SQL Warehouse UI)
+DATABRICKS_WAREHOUSE_ID=/sql/1.0/warehouses/abc123xyz
+# Or just the warehouse ID also works:
+# DATABRICKS_WAREHOUSE_ID=abc123xyz
 
 # Optional: Default catalog and schema
 DATABRICKS_CATALOG=main
@@ -152,7 +154,7 @@ Validate generated query against SELECT * using EXPLAIN.
 star-spreader validate <table_name> [OPTIONS]
 
 Options:
-  --warehouse-id TEXT  Databricks SQL warehouse ID (required)
+  --warehouse-id TEXT  Databricks SQL warehouse HTTP path or ID (required)
   --output, -o PATH   Output file for validation report
   --host TEXT         Databricks workspace host URL
   --token TEXT        Databricks access token
@@ -162,11 +164,11 @@ Options:
 Example:
 ```bash
 # Validate query
-star-spreader validate main.analytics.user_events --warehouse-id abc123
+star-spreader validate main.analytics.user_events --warehouse-id /sql/1.0/warehouses/abc123
 
 # Save validation report
 star-spreader validate main.analytics.user_events \
-  --warehouse-id abc123 \
+  --warehouse-id /sql/1.0/warehouses/abc123 \
   --output validation_report.txt
 ```
 
@@ -342,7 +344,7 @@ export DATABRICKS_TOKEN=your-token
 export DATABRICKS_TABLE=your_table_name
 export DATABRICKS_CATALOG=main  # Optional
 export DATABRICKS_SCHEMA=default  # Optional
-export DATABRICKS_WAREHOUSE_ID=warehouse-id  # Optional, for validation
+export DATABRICKS_WAREHOUSE_ID=/sql/1.0/warehouses/abc123  # Optional, for validation
 
 # Run the end-to-end example
 python examples/end_to_end_example.py
@@ -363,19 +365,42 @@ pip install -e ".[dev]"
 
 ### Running Tests
 
-```bash
-# Run all tests with coverage
-pytest
+Star-spreader includes both **unit tests** (fast, use mocks) and **functional tests** (slower, use real Databricks).
 
-# Run specific test file
+#### Unit Tests Only (Fast)
+
+```bash
+# Run unit tests (no Databricks connection required)
+pytest -m "not functional"
+
+# Run specific unit test file
 pytest tests/test_sql_generator.py
 
 # Run with verbose output
-pytest -v
+pytest -v -m "not functional"
 
 # Generate coverage report
-pytest --cov=star_spreader --cov-report=html
+pytest --cov=star_spreader --cov-report=html -m "not functional"
 ```
+
+#### Functional Tests (Require Databricks)
+
+Functional tests validate against a real Databricks workspace. See [tests/functional/FUNCTIONAL_TESTS.md](tests/functional/FUNCTIONAL_TESTS.md) for detailed setup instructions.
+
+```bash
+# Set required environment variables
+export DATABRICKS_HOST="https://your-workspace.cloud.databricks.com"
+export DATABRICKS_TOKEN="dapi1234567890abcdef"
+export DATABRICKS_WAREHOUSE_ID="abc123xyz"
+
+# Run functional tests only
+pytest -m functional -v
+
+# Run all tests (unit + functional)
+pytest
+```
+
+**Note:** Functional tests create temporary tables in Databricks and take ~30-60 seconds to run.
 
 ### Code Quality
 

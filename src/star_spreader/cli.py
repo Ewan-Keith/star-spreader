@@ -163,7 +163,8 @@ def validate(
     ] = None,
     token: Annotated[Optional[str], typer.Option("--token", help="Databricks access token")] = None,
     warehouse_id: Annotated[
-        Optional[str], typer.Option("--warehouse-id", help="Databricks SQL warehouse ID")
+        Optional[str],
+        typer.Option("--warehouse-id", help="Databricks SQL warehouse HTTP path or ID"),
     ] = None,
     output: Annotated[
         Optional[Path], typer.Option("--output", "-o", help="Output file for validation report")
@@ -176,7 +177,7 @@ def validate(
     in Databricks.
 
     Example:
-        star-spreader validate main.default.my_table --warehouse-id abc123
+        star-spreader validate main.default.my_table --warehouse-id /sql/1.0/warehouses/abc123
 
         star-spreader validate main.default.my_table --output validation.txt
     """
