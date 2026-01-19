@@ -44,9 +44,6 @@ star-spreader generate main.default.my_table
 # Save output to file
 star-spreader generate main.default.my_table --output query.sql
 
-# Display table schema
-star-spreader show-schema main.default.my_table
-
 # Validate generated query against SELECT *
 star-spreader validate main.default.my_table --warehouse-id /sql/1.0/warehouses/abc123
 ```
@@ -170,34 +167,6 @@ star-spreader validate main.analytics.user_events --warehouse-id /sql/1.0/wareho
 star-spreader validate main.analytics.user_events \
   --warehouse-id /sql/1.0/warehouses/abc123 \
   --output validation_report.txt
-```
-
-#### `show-schema`
-Display table schema in a readable format.
-
-```bash
-star-spreader show-schema <table_name> [OPTIONS]
-
-Options:
-  --output, -o PATH   Output file path (stdout if not specified)
-  --format, -f TEXT   Output format: table or text (default: table)
-  --host TEXT         Databricks workspace host URL
-  --token TEXT        Databricks access token
-  --help              Show help message
-```
-
-Example:
-```bash
-# Display schema as table
-star-spreader show-schema main.analytics.user_events
-
-# Display as plain text
-star-spreader show-schema main.analytics.user_events --format text
-
-# Save to file
-star-spreader show-schema main.analytics.user_events \
-  --format text \
-  --output schema.txt
 ```
 
 ### CLI Configuration

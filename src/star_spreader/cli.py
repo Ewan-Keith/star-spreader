@@ -1,22 +1,19 @@
 """Command-line interface for star-spreader.
 
-This module provides a CLI for generating explicit SELECT statements,
-validating queries, and displaying table schemas.
+This module provides a CLI for generating explicit SELECT statements
+and validating queries.
 """
 
-import sys
 from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table as RichTable
 from typing_extensions import Annotated
 
 from star_spreader.config import Config
 from star_spreader.generator.sql_schema_tree import generate_select_from_schema_tree
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
-from star_spreader.schema_tree.nodes import SchemaTreeNode
 from star_spreader.validator.explain import ExplainValidator
 
 app = typer.Typer(
@@ -73,39 +70,6 @@ def get_config(
         config.databricks_warehouse_id = warehouse_id
 
     return config
-
-
-def format_column_for_display(
-    column: SchemaTreeNode, indent: int = 0
-) -> list[tuple[str, str, str]]:
-    """Format a column and its children for display.
-
-    Args:
-        column: The schema tree node to format
-        indent: Current indentation level
-
-    Returns:
-        List of tuples (name, type, nullable) formatted for display
-    """
-    from star_spreader.schema_tree.nodes import ArrayNode, MapNode, StructNode
-
-    rows = []
-    prefix = "  " * indent
-    nullable_str = "NULL" if column.nullable else "NOT NULL"
-
-    rows.append((f"{prefix}{column.name}", column.data_type, nullable_str))
-
-    # Handle different node types
-    if isinstance(column, StructNode):
-        for field in column.fields:
-            rows.extend(format_column_for_display(field, indent + 1))
-    elif isinstance(column, ArrayNode):
-        rows.extend(format_column_for_display(column.element_type, indent + 1))
-    elif isinstance(column, MapNode):
-        rows.extend(format_column_for_display(column.key_type, indent + 1))
-        rows.extend(format_column_for_display(column.value_type, indent + 1))
-
-    return rows
 
 
 @app.command()
@@ -268,101 +232,6 @@ def validate(
         # Exit with error code if not equivalent
         if not result["equivalent"]:
             raise typer.Exit(1)
-
-    except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
-        raise typer.Exit(1)
-
-
-@app.command(name="show-schema")
-def show_schema(
-    table_name: Annotated[str, typer.Argument(help="Table name in format catalog.schema.table")],
-    output: Annotated[
-        Optional[Path],
-        typer.Option("--output", "-o", help="Output file path (stdout if not specified)"),
-    ] = None,
-    host: Annotated[
-        Optional[str], typer.Option("--host", help="Databricks workspace host URL")
-    ] = None,
-    token: Annotated[Optional[str], typer.Option("--token", help="Databricks access token")] = None,
-    format: Annotated[
-        str, typer.Option("--format", "-f", help="Output format: table or text")
-    ] = "table",
-) -> None:
-    """Display table schema in a readable format.
-
-    This command fetches and displays the schema for the specified table,
-    including all columns, their types, and nullable status. Complex types
-    like structs are displayed with nested structure.
-
-    Example:
-        star-spreader show-schema main.default.my_table
-
-        star-spreader show-schema main.default.my_table --format text --output schema.txt
-    """
-    try:
-        # Parse table name
-        catalog, schema, table = parse_table_name(table_name)
-
-        # Get configuration
-        config = get_config(host, token)
-
-        # Create schema fetcher
-        workspace = config.get_workspace_client()
-        fetcher = DatabricksSchemaFetcher(workspace_client=workspace)
-
-        # Fetch schema
-        console.print(f"[blue]Fetching schema for {table_name}...[/blue]")
-        schema_tree = fetcher.get_schema_tree(catalog, schema, table)
-
-        # Format output based on format option
-        if format == "table":
-            # Create rich table
-            rich_table = RichTable(title=f"Schema: {table_name}")
-            rich_table.add_column("Column Name", style="cyan")
-            rich_table.add_column("Data Type", style="magenta")
-            rich_table.add_column("Nullable", style="yellow")
-
-            for column in schema_tree.columns:
-                rows = format_column_for_display(column)
-                for name, dtype, nullable in rows:
-                    rich_table.add_row(name, dtype, nullable)
-
-            # Output
-            if output:
-                # For file output with table format, use text representation
-                text_output = []
-                text_output.append(f"Schema: {table_name}")
-                text_output.append("=" * 80)
-                text_output.append("")
-                for column in schema_tree.columns:
-                    rows = format_column_for_display(column)
-                    for name, dtype, nullable in rows:
-                        text_output.append(f"{name:40} {dtype:30} {nullable}")
-                output.write_text("\n".join(text_output))
-                console.print(f"[green]✓[/green] Schema written to {output}")
-            else:
-                console.print(rich_table)
-        else:  # text format
-            lines = []
-            lines.append(f"Table: {catalog}.{schema}.{table}")
-            lines.append("=" * 80)
-            lines.append("")
-            for column in schema_tree.columns:
-                rows = format_column_for_display(column)
-                for name, dtype, nullable in rows:
-                    lines.append(f"{name:40} {dtype:30} {nullable}")
-
-            text_output = "\n".join(lines)
-
-            if output:
-                output.write_text(text_output)
-                console.print(f"[green]✓[/green] Schema written to {output}")
-            else:
-                console.print("\n" + text_output + "\n")
 
     except ValueError as e:
         console.print(f"[red]Error:[/red] {e}", err=True)
