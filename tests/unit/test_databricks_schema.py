@@ -12,21 +12,17 @@ from star_spreader.schema.databricks import DatabricksSchemaFetcher
 class TestDatabricksSchemaFetcher:
     """Test suite for DatabricksSchemaFetcher."""
 
-    def test_init_with_host_and_token(self) -> None:
-        """Test initialization with host and token."""
-        fetcher = DatabricksSchemaFetcher(host="https://example.databricks.com", token="test_token")
-        assert fetcher.workspace is not None
-
     def test_init_with_workspace_client(self) -> None:
         """Test initialization with pre-configured workspace client."""
         mock_client = MagicMock(spec=WorkspaceClient)
         fetcher = DatabricksSchemaFetcher(workspace_client=mock_client)
         assert fetcher.workspace is mock_client
 
-    def test_init_without_credentials_raises_error(self) -> None:
-        """Test that initialization without credentials raises ValueError."""
-        with pytest.raises(ValueError, match="Either workspace_client or both host and token"):
-            DatabricksSchemaFetcher()
+    def test_init_without_workspace_client_uses_unified_auth(self) -> None:
+        """Test that initialization without workspace_client uses unified auth."""
+        # This should not raise an error, but will use unified auth discovery
+        fetcher = DatabricksSchemaFetcher()
+        assert fetcher.workspace is not None
 
     def test_is_complex_type(self) -> None:
         """Test complex type detection."""

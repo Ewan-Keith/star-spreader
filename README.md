@@ -71,12 +71,37 @@ print(explicit_sql)
 
 ## Configuration
 
-Star Spreader uses environment variables for configuration. Create a `.env` file or set these variables in your environment:
+Star Spreader uses **Databricks Unified Authentication**, which automatically discovers credentials from your local environment. No configuration is required if you're already authenticated with the Databricks CLI.
+
+### Authentication Setup
+
+**Recommended: Use Databricks CLI**
 
 ```bash
-# Required for Databricks connection
+# Authenticate once with the Databricks CLI
+databricks auth login --host https://your-workspace.cloud.databricks.com
+
+# Then use star-spreader without any additional configuration
+star-spreader generate main.default.my_table
+```
+
+### How Authentication Works
+
+Star Spreader automatically discovers your Databricks credentials using the [Databricks Unified Authentication](https://docs.databricks.com/dev-tools/auth/unified-auth.html) chain:
+
+1. **Databricks CLI** (`databricks auth login`) - Recommended
+2. **Azure CLI** (for Azure Databricks users: `az login`)
+3. **Environment Variables** (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`)
+4. **Configuration File** (`~/.databrickscfg`)
+5. **Cloud provider auth** (AWS, Azure, GCP)
+
+### Optional Configuration
+
+You can optionally set these environment variables in a `.env` file:
+
+```bash
+# Optional: Specify a particular workspace (if you have multiple profiles)
 DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-DATABRICKS_TOKEN=dapi1234567890abcdef
 
 # Optional: Default catalog and schema
 DATABRICKS_CATALOG=main
@@ -88,20 +113,15 @@ DATABRICKS_SCHEMA=default
 ```python
 from star_spreader.config import Config
 
-# Load from environment variables
+# Load configuration (uses unified auth automatically)
 config = Config()
 
 # Access configuration
 print(config.databricks_catalog)  # 'main'
 print(config.databricks_schema)   # 'default'
 
-# Get a workspace client
+# Get a workspace client (discovers credentials automatically)
 workspace = config.get_workspace_client()
-
-# Validate configuration
-status = config.validate_config()
-if not status["workspace_configured"]:
-    print("Warning: Databricks credentials not configured")
 ```
 
 ## CLI Reference
@@ -116,8 +136,7 @@ star-spreader generate <table_name> [OPTIONS]
 
 Options:
   --output, -o PATH    Output file path (stdout if not specified)
-  --host TEXT         Databricks workspace host URL
-  --token TEXT        Databricks access token
+  --host TEXT         Databricks workspace host URL (optional)
   --help              Show help message
 ```
 
@@ -129,27 +148,33 @@ star-spreader generate main.analytics.user_events
 # Save to file
 star-spreader generate main.analytics.user_events --output select.sql
 
-# Override host and token
+# Specify a particular workspace (if you have multiple)
 star-spreader generate main.analytics.user_events \
-  --host https://myworkspace.cloud.databricks.com \
-  --token dapi123456
+  --host https://myworkspace.cloud.databricks.com
 ```
 
 ### CLI Configuration
 
-The CLI uses the same environment variables as the Python API. You can also override settings using command-line options:
+The CLI uses Databricks Unified Authentication by default. If you're authenticated with the Databricks CLI, no additional configuration is needed:
 
 ```bash
-# Using environment variables
-export DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-export DATABRICKS_TOKEN=dapi1234567890abcdef
+# Authenticate once (if not already done)
+databricks auth login
 
+# Then use star-spreader directly
 star-spreader generate main.default.my_table
+```
 
-# Or override via command-line options
+Optionally specify a particular workspace:
+
+```bash
+# Specify workspace via command-line option
 star-spreader generate main.default.my_table \
-  --host https://your-workspace.cloud.databricks.com \
-  --token dapi1234567890abcdef
+  --host https://your-workspace.cloud.databricks.com
+
+# Or via environment variable
+export DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+star-spreader generate main.default.my_table
 ```
 
 ## Usage Examples
@@ -157,12 +182,13 @@ star-spreader generate main.default.my_table \
 ### Basic Schema Fetching
 
 ```python
+from star_spreader.config import load_config
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
 
-# Initialize with explicit credentials
+# Initialize using unified auth (discovers credentials automatically)
+config = load_config()
 fetcher = DatabricksSchemaFetcher(
-    host="https://your-workspace.cloud.databricks.com",
-    token="your-token"
+    workspace_client=config.get_workspace_client()
 )
 
 # Fetch schema for a table
@@ -234,9 +260,10 @@ The `examples/` directory contains complete working examples:
 Run examples:
 
 ```bash
-# Set required environment variables first
-export DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-export DATABRICKS_TOKEN=your-token
+# Authenticate with Databricks CLI (if not already done)
+databricks auth login
+
+# Set table name to use
 export DATABRICKS_TABLE=your_table_name
 export DATABRICKS_CATALOG=main  # Optional
 export DATABRICKS_SCHEMA=default  # Optional
@@ -280,9 +307,10 @@ pytest --cov=star_spreader --cov-report=html tests/unit/
 Functional tests validate against a real Databricks workspace by comparing actual query results. See [tests/functional/FUNCTIONAL_TESTS.md](tests/functional/FUNCTIONAL_TESTS.md) for detailed setup instructions.
 
 ```bash
-# Set required environment variables
-export DATABRICKS_HOST="https://your-workspace.cloud.databricks.com"
-export DATABRICKS_TOKEN="dapi1234567890abcdef"
+# Authenticate with Databricks CLI
+databricks auth login
+
+# Set warehouse ID for SQL execution
 export DATABRICKS_WAREHOUSE_ID="/sql/1.0/warehouses/abc123xyz"
 
 # Run functional tests only

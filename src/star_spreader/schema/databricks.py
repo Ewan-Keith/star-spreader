@@ -28,34 +28,39 @@ class DatabricksSchemaFetcher(SchemaFetcher):
     This fetcher connects to a Databricks workspace and retrieves detailed schema
     information including complex nested types (STRUCT, ARRAY, MAP).
 
+    Uses Databricks Unified Authentication for credential discovery.
+
     Attributes:
         workspace: The Databricks WorkspaceClient instance for API calls.
     """
 
     def __init__(
         self,
-        host: Optional[str] = None,
-        token: Optional[str] = None,
         workspace_client: Optional[WorkspaceClient] = None,
     ) -> None:
         """Initialize the Databricks schema fetcher.
 
-        Args:
-            host: Databricks workspace host URL (e.g., 'https://company.cloud.databricks.com').
-                  Required if workspace_client is not provided.
-            token: Databricks personal access token. Required if workspace_client is not provided.
-            workspace_client: Pre-configured WorkspaceClient instance. If provided, host and
-                            token are ignored.
+        Uses Databricks Unified Authentication to discover credentials from your
+        local environment (databricks CLI, Azure CLI, environment variables, etc.).
 
-        Raises:
-            ValueError: If neither workspace_client nor (host and token) are provided.
+        Args:
+            workspace_client: Pre-configured WorkspaceClient instance. If not provided,
+                            creates a new client using unified auth discovery.
+
+        Example:
+            >>> # Using unified auth (recommended)
+            >>> fetcher = DatabricksSchemaFetcher()
+
+            >>> # Or with explicit config
+            >>> from star_spreader.config import Config
+            >>> config = Config()
+            >>> fetcher = DatabricksSchemaFetcher(workspace_client=config.get_workspace_client())
         """
         if workspace_client is not None:
             self.workspace = workspace_client
-        elif host is not None and token is not None:
-            self.workspace = WorkspaceClient(host=host, token=token)
         else:
-            raise ValueError("Either workspace_client or both host and token must be provided")
+            # Use unified auth discovery
+            self.workspace = WorkspaceClient()
 
     def get_schema_tree(self, catalog: str, schema: str, table: str) -> TableSchemaNode:
         """Fetch schema information for a Databricks table and return as schema tree.

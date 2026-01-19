@@ -5,11 +5,15 @@ They create temporary tables in a test schema, populate them with data,
 and validate that the generated SQL returns identical results to SELECT *.
 
 Configuration:
-    Set the following environment variables:
-    - DATABRICKS_HOST: Your workspace URL
-    - DATABRICKS_TOKEN: Your access token
+    Authenticate using Databricks Unified Authentication:
+    - Recommended: Run `databricks auth login` before running tests
+    - Alternative: Set environment variables (DATABRICKS_HOST, DATABRICKS_TOKEN)
+
+    Required environment variables:
     - DATABRICKS_WAREHOUSE_ID: SQL warehouse HTTP path (e.g., '/sql/1.0/warehouses/abc123xyz')
                                 or warehouse ID (e.g., 'abc123xyz')
+
+    Optional environment variables:
     - DATABRICKS_CATALOG: Catalog to use (default: 'main')
     - FUNCTIONAL_TEST_SCHEMA: Schema name for tests (default: 'star_spreader_test')
 """
@@ -28,11 +32,8 @@ from star_spreader.generator.sql_schema_tree import generate_select_from_schema_
 
 @pytest.fixture(scope="module")
 def workspace_client() -> WorkspaceClient:
-    """Create a WorkspaceClient for the test session."""
-    host = os.getenv("DATABRICKS_HOST")
-    token = os.getenv("DATABRICKS_TOKEN")
-
-    return WorkspaceClient(host=host, token=token)
+    """Create a WorkspaceClient for the test session using unified auth."""
+    return WorkspaceClient()
 
 
 @pytest.fixture(scope="module")

@@ -36,14 +36,16 @@ def parse_table_name(table_name: str) -> tuple[str, str, str]:
 
 def get_config(
     host: Optional[str] = None,
-    token: Optional[str] = None,
     warehouse_id: Optional[str] = None,
 ) -> Config:
     """Get configuration from environment or CLI options.
 
+    Uses Databricks Unified Authentication by default. Authentication is
+    discovered automatically from your local environment (databricks CLI,
+    Azure CLI, environment variables, ~/.databrickscfg, etc.).
+
     Args:
         host: Override Databricks host from environment
-        token: Override Databricks token from environment
         warehouse_id: Override warehouse ID from environment
 
     Returns:
@@ -54,8 +56,6 @@ def get_config(
     # Override config values if provided via CLI
     if host:
         config.databricks_host = host
-    if token:
-        config.databricks_token = token
     if warehouse_id:
         config.databricks_warehouse_id = warehouse_id
 
@@ -81,11 +81,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--host",
-        help="Databricks workspace host URL",
-    )
-    parser.add_argument(
-        "--token",
-        help="Databricks access token",
+        help="Databricks workspace host URL (optional, uses unified auth discovery if not set)",
     )
 
     args = parser.parse_args()
@@ -95,7 +91,7 @@ def main() -> None:
         catalog, schema, table = parse_table_name(args.table_name)
 
         # Get configuration
-        config = get_config(args.host, args.token)
+        config = get_config(args.host)
 
         # Create schema fetcher
         workspace = config.get_workspace_client()
