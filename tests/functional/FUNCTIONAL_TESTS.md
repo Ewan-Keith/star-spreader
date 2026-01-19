@@ -12,12 +12,22 @@ This approach validates that the generated SQL truly produces the same results a
 
 ## Prerequisites
 
+### Authentication
+
+Authenticate using Databricks Unified Authentication:
+
+```bash
+# Create a profile (one-time setup)
+databricks auth login
+
+# Or create a named profile
+databricks auth login --profile test
+```
+
 ### Required Environment Variables
 
 ```bash
-export DATABRICKS_HOST="https://your-workspace.cloud.databricks.com"
-export DATABRICKS_TOKEN="dapi1234567890abcdef"
-# Use the full HTTP path (recommended - copy from Databricks SQL Warehouse UI)
+# SQL warehouse for query execution (required)
 export DATABRICKS_WAREHOUSE_ID="/sql/1.0/warehouses/abc123xyz"
 # Or just the warehouse ID also works:
 # export DATABRICKS_WAREHOUSE_ID="abc123xyz"
@@ -26,13 +36,15 @@ export DATABRICKS_WAREHOUSE_ID="/sql/1.0/warehouses/abc123xyz"
 ### Optional Environment Variables
 
 ```bash
-# Catalog to use for tests (default: 'main')
-export DATABRICKS_CATALOG="main"
+# Profile to use (default: DEFAULT)
+export DATABRICKS_PROFILE="test"
 
 # Schema name prefix (default: 'star_spreader_test')
 # A timestamp will be appended to create unique schema per run
 export FUNCTIONAL_TEST_SCHEMA="star_spreader_test"
 ```
+
+**Note:** Catalog is hard-coded to 'main'. Workspace configuration is handled by the profile.
 
 ### Permissions Required
 
@@ -185,8 +197,8 @@ This indicates the second row's struct is being reconstructed as NULL instead of
 ### Connection Errors
 
 If tests fail with connection errors, verify:
-- `DATABRICKS_HOST` is set correctly
-- `DATABRICKS_TOKEN` is valid
+- You've authenticated with `databricks auth login`
+- Your profile is valid and not expired
 - Your network can reach the Databricks workspace
 
 ### Permission Errors
@@ -258,12 +270,15 @@ jobs:
         with:
           python-version: '3.10'
       - run: pip install -e ".[dev]"
+      # Setup Databricks CLI authentication using stored credentials
+      - run: |
+          mkdir -p ~/.databrickscfg
+          echo "[DEFAULT]" > ~/.databrickscfg
+          echo "host = ${{ secrets.DATABRICKS_HOST }}" >> ~/.databrickscfg
+          echo "token = ${{ secrets.DATABRICKS_TOKEN }}" >> ~/.databrickscfg
       - run: pytest tests/functional/ -v
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           DATABRICKS_WAREHOUSE_ID: ${{ secrets.DATABRICKS_WAREHOUSE_ID }}
-          DATABRICKS_CATALOG: main
 ```
 
 ## Troubleshooting
