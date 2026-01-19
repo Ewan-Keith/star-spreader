@@ -4,7 +4,6 @@ These tests demonstrate the schema tree-based architecture and ensure
 the schema tree nodes and SQL generation work correctly.
 """
 
-import pytest
 from star_spreader.schema_tree.nodes import (
     ArrayNode,
     MapNode,

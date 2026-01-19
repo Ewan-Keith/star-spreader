@@ -7,11 +7,11 @@ This directory contains the test suite for star-spreader, organized into unit te
 ```
 tests/
 ├── unit/              # Unit tests (fast, use mocks)
-│   ├── test_sql_generator.py      # SQL generation logic tests
+│   ├── test_sql_generation.py     # SQL generation logic tests
 │   ├── test_databricks_schema.py  # Schema fetching with mocked responses
-│   └── test_integration.py        # End-to-end workflow with mocks
+│   └── test_schema_tree.py        # Schema tree node tests
 ├── functional/        # Functional tests (slower, use real Databricks)
-│   ├── test_functional.py         # Tests against real Databricks workspace
+│   ├── test_functional.py         # Tests against real Databricks with data validation
 │   └── FUNCTIONAL_TESTS.md        # Detailed functional test documentation
 └── README.md          # This file
 ```
@@ -30,7 +30,7 @@ tests/
 - SQL generation logic for all complex types
 - Schema parsing and type detection
 - Edge cases and error handling
-- Complete workflow with mocked Databricks responses
+- Schema tree node creation and manipulation
 
 **Run unit tests:**
 ```bash
@@ -38,44 +38,38 @@ tests/
 pytest tests/unit/ -v
 
 # Specific file
-pytest tests/unit/test_sql_generator.py -v
-
-# Using marker (excludes functional tests)
-pytest -m "not functional" -v
+pytest tests/unit/test_sql_generation.py -v
 ```
 
 ### Functional Tests (`tests/functional/`)
 
 **Characteristics:**
-- ⚠️ Slower execution (~30-60 seconds total)
+- ⚠️ Slower execution (~30-90 seconds total)
 - ⚠️ Require real Databricks workspace
 - ⚠️ Require credentials and warehouse
 - ✅ Validate against actual Databricks behavior
-- ✅ Compare real EXPLAIN plans
+- ✅ **Compare actual query results with real data**
 
 **Coverage:**
 - All complex type scenarios from unit tests
 - Actual schema fetching from Databricks
-- Real EXPLAIN plan comparison
-- Validation that generated SQL is truly equivalent to SELECT *
+- Real query execution and result comparison
+- Data validation with NULL values, empty collections, and edge cases
 
 **Run functional tests:**
 ```bash
 # Set required environment variables first
 export DATABRICKS_HOST="https://workspace.cloud.databricks.com"
 export DATABRICKS_TOKEN="dapi123..."
-export DATABRICKS_WAREHOUSE_ID="abc123"
+export DATABRICKS_WAREHOUSE_ID="/sql/1.0/warehouses/abc123"
 
 # Run functional tests
 pytest tests/functional/ -v
-
-# Or using marker
-pytest -m functional -v
 ```
 
 See [functional/FUNCTIONAL_TESTS.md](functional/FUNCTIONAL_TESTS.md) for detailed setup and usage.
 
-## Running All Tests
+## Running Tests
 
 ```bash
 # Run all tests (unit + functional)
@@ -85,12 +79,15 @@ pytest
 pytest --cov=star_spreader --cov-report=html
 
 # Run only unit tests (skip functional)
-pytest -m "not functional"
+pytest tests/unit/ -v
+
+# Run specific test file
+pytest tests/unit/test_sql_generation.py -v
 ```
 
 ## Test Organization
 
-### `test_sql_generator.py`
+### `test_sql_generation.py`
 Tests for the SQL generation logic, including:
 - Simple columns
 - STRUCT types (simple, nested, deeply nested)
@@ -107,28 +104,31 @@ Tests for Databricks schema fetching, including:
 - Nested type parsing
 - Error handling
 
-### `test_integration.py`
-Integration tests with mocked Databricks, including:
-- Complete workflows (fetch → generate → validate)
-- All complex type combinations
-- Mocked EXPLAIN plan comparisons
+### `test_schema_tree.py`
+Tests for schema tree nodes, including:
+- Simple column node creation
+- STRUCT node creation and manipulation
+- ARRAY node creation
+- MAP node creation
+- SQL generation from schema trees
 
 ### `test_functional.py`
 Functional tests against real Databricks, including:
 - Real table creation with complex schemas
+- Data insertion with varied test data (including NULLs, empty collections)
 - Actual schema fetching
-- Real EXPLAIN plan validation
-- Comprehensive type coverage
+- **Real query execution and result comparison**
+- Comprehensive type coverage with actual data validation
 
 ## Best Practices
 
 ### When Adding New Tests
 
 1. **Unit tests first**: Add unit test for new functionality
-2. **Test both unit and functional**: Ensure unit test passes, then add functional test
+2. **Test with data**: For functional tests, include varied test data with NULLs and edge cases
 3. **Descriptive names**: Use clear, descriptive test names
-4. **Good assertions**: Include helpful error messages
-5. **Clean up**: Functional tests should clean up after themselves
+4. **Good assertions**: Include helpful error messages showing actual vs expected
+5. **Clean up**: Functional tests clean up automatically, but check on crash
 
 ### Test Naming Convention
 
@@ -136,17 +136,17 @@ Functional tests against real Databricks, including:
 # Unit tests
 def test_<feature>_<scenario>():
     """Test <description>."""
-    
+
 # Functional tests
 def test_<type>_<scenario>():
-    """Test <description> against real Databricks."""
+    """Test <description> with real Databricks data."""
 ```
 
 ### Running Tests During Development
 
 ```bash
 # Quick feedback loop (unit tests only)
-pytest tests/unit/test_sql_generator.py -k "test_struct" -v
+pytest tests/unit/test_sql_generation.py -k "test_struct" -v
 
 # Test specific functionality
 pytest tests/unit/ -k "array_of_struct" -v
@@ -172,16 +172,9 @@ pytest tests/unit/ -v --cov=star_spreader
 pytest -v --cov=star_spreader
 ```
 
-This keeps PR checks fast while ensuring main branch has full validation.
+This keeps PR checks fast while ensuring main branch has full validation with functional tests.
 
 ## Coverage
-
-Current test coverage:
-
-- **SQL Generator**: ~100% (all code paths tested)
-- **Schema Fetching**: ~95% (error handling tested)
-- **Validation**: ~90% (EXPLAIN parsing edge cases tested)
-- **Overall**: ~95%
 
 View detailed coverage:
 ```bash
@@ -220,7 +213,7 @@ When adding new features:
 
 1. Add unit test in `tests/unit/`
 2. Verify it passes: `pytest tests/unit/test_<file>.py -v`
-3. Add functional test in `tests/functional/`
+3. Add functional test in `tests/functional/` with test data
 4. Verify against real Databricks: `pytest tests/functional/ -v`
 5. Ensure all tests pass: `pytest -v`
 

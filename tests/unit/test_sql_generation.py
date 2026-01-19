@@ -5,8 +5,6 @@ for various schema patterns including simple columns, structs, arrays, maps,
 and complex nested combinations.
 """
 
-import pytest
-
 from star_spreader.schema_tree.nodes import (
     ArrayNode,
     MapNode,

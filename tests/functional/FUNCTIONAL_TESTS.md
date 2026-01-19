@@ -3,8 +3,12 @@
 The functional tests in `test_functional.py` validate star-spreader against a **real Databricks workspace**. Unlike unit tests which use mocks, these tests:
 
 1. Create actual tables with complex schemas in Databricks
-2. Run the star-spreader workflow (fetch schema → generate SQL)
-3. Validate that the generated SQL produces the same EXPLAIN plan as `SELECT *`
+2. Populate tables with representative test data
+3. Run the star-spreader workflow (fetch schema → generate SQL)
+4. Execute both `SELECT *` and the generated explicit query
+5. **Compare the actual returned data** to ensure they're identical
+
+This approach validates that the generated SQL truly produces the same results as `SELECT *`, not just similar schemas or plans.
 
 ## Prerequisites
 
@@ -35,6 +39,7 @@ export FUNCTIONAL_TEST_SCHEMA="star_spreader_test"
 Your Databricks credentials must have:
 - `CREATE SCHEMA` permission in the target catalog
 - `CREATE TABLE` permission in the schema
+- `INSERT` permission on created tables
 - `SELECT` permission on created tables
 - Access to run SQL queries on the specified warehouse
 
@@ -43,85 +48,93 @@ Your Databricks credentials must have:
 ### Run All Functional Tests
 
 ```bash
-pytest tests/test_functional.py -v
-```
-
-### Run Only Functional Tests (exclude unit tests)
-
-```bash
-pytest -m functional -v
-```
-
-### Run Only Unit Tests (exclude functional tests)
-
-```bash
-pytest -m "not functional" -v
-```
-
-### Run All Tests (unit + functional)
-
-```bash
-pytest tests/ -v
+pytest tests/functional/test_functional.py -v
 ```
 
 ### Run Specific Test Classes
 
 ```bash
 # Test only simple types
-pytest tests/test_functional.py::TestSimpleTypes -v
+pytest tests/functional/test_functional.py::TestSimpleTypes -v
 
 # Test only struct types
-pytest tests/test_functional.py::TestStructTypes -v
+pytest tests/functional/test_functional.py::TestStructTypes -v
 
 # Test only array types
-pytest tests/test_functional.py::TestArrayTypes -v
+pytest tests/functional/test_functional.py::TestArrayTypes -v
 
 # Test nested arrays
-pytest tests/test_functional.py::TestNestedArrays -v
+pytest tests/functional/test_functional.py::TestNestedArrays -v
 
 # Test complex mixed types
-pytest tests/test_functional.py::TestMixedComplexTypes -v
+pytest tests/functional/test_functional.py::TestMixedComplexTypes -v
 ```
 
 ### Run Specific Test Cases
 
 ```bash
 # Test a specific scenario
-pytest tests/test_functional.py::TestArrayTypes::test_array_of_struct -v
+pytest tests/functional/test_functional.py::TestArrayTypes::test_array_of_struct -v
 ```
 
 ## What Gets Tested
 
-The functional tests cover the same scenarios as unit tests but validate against real Databricks behavior:
+The functional tests cover comprehensive scenarios with actual data:
 
 ### Simple Types
 - ✅ Tables with simple columns (INT, STRING, DECIMAL, BOOLEAN, TIMESTAMP)
+- ✅ NULL values in simple columns
 
 ### STRUCT Types
 - ✅ Simple STRUCT columns
 - ✅ Nested STRUCTs (multiple levels)
-- ✅ STRUCT with fields named `key`/`value` (not confused with MAP)
+- ✅ NULL values within STRUCTs
 
 ### ARRAY Types
 - ✅ ARRAY of primitives (e.g., `ARRAY<STRING>`)
 - ✅ ARRAY of STRUCT
-- ✅ ARRAY<STRUCT> with nested STRUCT inside
+- ✅ Empty arrays
+- ✅ NULL values within array elements
 
 ### Nested Arrays
 - ✅ ARRAY<STRUCT<ARRAY<STRUCT>>> (2 levels)
-- ✅ ARRAY<STRUCT<ARRAY<STRUCT<ARRAY<STRUCT>>>>> (3 levels)
 
 ### MAP Types
 - ✅ Simple MAP columns
+- ✅ Empty maps
 
 ### Mixed Complex Types
-- ✅ STRUCT containing ARRAY and MAP
-- ✅ ARRAY<STRUCT> with ARRAY, MAP, and nested STRUCT fields
-- ✅ Real-world schemas combining all patterns
+- ✅ Real-world schemas combining STRUCTs, ARRAYs, and MAPs
+- ✅ All complex patterns with realistic data
 
-### Edge Cases
-- ✅ Multiple independent nested arrays at same level
-- ✅ Lambda variable scoping validation
+## How Tests Work
+
+### 1. Setup Phase
+Each test:
+1. Creates a table with the target schema
+2. **Inserts representative test data** including:
+   - Multiple rows with different values
+   - NULL values where appropriate
+   - Empty collections (arrays, maps)
+   - Nested structures with varied content
+
+### 2. Execution Phase
+The test:
+1. Fetches the schema using `DatabricksSchemaFetcher`
+2. Generates explicit SQL using the schema tree
+3. Executes `SELECT *` query
+4. Executes the generated explicit query
+
+### 3. Validation Phase
+The test:
+1. **Compares the complete result sets** row-by-row
+2. Ensures every row, column, and nested value matches exactly
+3. Fails if any difference is detected
+
+This approach is **much more reliable** than comparing EXPLAIN plans because:
+- It validates actual behavior, not just optimizer predictions
+- It catches issues with value ordering, NULL handling, or type coercion
+- It ensures nested structures are correctly reconstructed
 
 ## Test Schema Management
 
@@ -129,7 +142,7 @@ The functional tests cover the same scenarios as unit tests but validate against
 
 The test suite automatically:
 1. Creates a timestamped schema at the start of the test session (e.g., `star_spreader_test_1234567890`)
-2. Creates tables within that schema for each test
+2. Creates and populates tables within that schema for each test
 3. Drops the entire schema (CASCADE) at the end of the test session
 
 ### Manual Cleanup (if tests crash)
@@ -146,23 +159,28 @@ DROP SCHEMA IF EXISTS main.star_spreader_test_1234567890 CASCADE;
 
 ## Understanding Test Failures
 
-### Assertion Error: Queries Not Equivalent
+### Assertion Error: Query Results Don't Match
 
-If a test fails with "Queries are not equivalent!", the test output shows:
+If a test fails with "Query results don't match!", the test output shows:
 
-1. **Differences** - What's different between the EXPLAIN plans
-2. **SELECT * plan** - The plan for `SELECT *`
-3. **Explicit plan** - The plan for the generated explicit SQL
+1. **Row count** - Number of rows returned
+2. **SELECT * results** - The actual data from `SELECT *`
+3. **Explicit results** - The actual data from the generated query
+4. **Explicit query** - The generated SQL for inspection
 
 Example failure:
 ```
-AssertionError: Queries are not equivalent!
-Differences: Line 3 differs:
-  SELECT *: Project [id#1L, address#2]
-  Explicit: Project [id#1L, address.street#3, address.city#4]
+AssertionError: Query results don't match!
+Row count: 2
+SELECT * results: [[1, {'street': '123 Main', 'city': 'NYC'}], [2, {'street': '456 Oak', 'city': 'SF'}]]
+Explicit results: [[1, {'street': '123 Main', 'city': 'NYC'}], [2, None]]
+Explicit query:
+SELECT `id`,
+       STRUCT(`address`.`street` AS `street`, `address`.`city` AS `city`) AS `address`
+FROM `main`.`test_schema`.`table_name`
 ```
 
-This indicates the generated SQL is flattening the struct instead of reconstructing it.
+This indicates the second row's struct is being reconstructed as NULL instead of the actual values.
 
 ### Connection Errors
 
@@ -191,24 +209,24 @@ If tests fail with warehouse errors:
 
 Functional tests are **significantly slower** than unit tests because they:
 - Create real tables in Databricks
-- Execute actual SQL queries
-- Run EXPLAIN on queries
+- Insert actual data
+- Execute SQL queries twice per test
 - Wait for warehouse responses
 
 Expect:
 - **Unit tests**: ~1-2 seconds total
-- **Functional tests**: ~30-60 seconds total (depending on warehouse startup time)
+- **Functional tests**: ~30-90 seconds total (depending on warehouse startup time and data volume)
 
-### Parallel Execution
+### Cost Considerations
 
-The tests use module-scoped fixtures, so:
-- Schema is created once per test session
-- Tables are created/dropped for each test
-- Tests run sequentially (not in parallel)
+Running functional tests against Databricks incurs costs:
+- SQL warehouse compute time (most significant)
+- Storage for temporary tables (minimal, cleaned up after tests)
 
-To enable parallel execution, you'd need to:
-1. Use function-scoped fixtures (slower)
-2. Or use unique table names per test (requires coordination)
+Recommendations:
+- Use a small/development warehouse for tests
+- Run functional tests on main branch only in CI
+- Don't run on every PR unless needed
 
 ## CI/CD Integration
 
@@ -228,7 +246,7 @@ jobs:
         with:
           python-version: '3.10'
       - run: pip install -e ".[dev]"
-      - run: pytest -m "not functional" -v
+      - run: pytest tests/unit/ -v
   
   functional-tests:
     runs-on: ubuntu-latest
@@ -240,7 +258,7 @@ jobs:
         with:
           python-version: '3.10'
       - run: pip install -e ".[dev]"
-      - run: pytest -m functional -v
+      - run: pytest tests/functional/ -v
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
@@ -248,22 +266,11 @@ jobs:
           DATABRICKS_CATALOG: main
 ```
 
-### Cost Considerations
-
-Running functional tests against Databricks incurs costs:
-- SQL warehouse compute time
-- Storage for temporary tables (minimal, tables are empty)
-
-Recommendations:
-- Use a small/development warehouse for tests
-- Run functional tests on main branch only
-- Don't run on every PR unless needed
-
 ## Troubleshooting
 
-### Tests Skip with "requires DATABRICKS_HOST"
+### Tests Skip with "DATABRICKS_WAREHOUSE_ID not set"
 
-Set the required environment variables (see Prerequisites).
+Set the required environment variable (see Prerequisites).
 
 ### Schema Already Exists Error
 
@@ -280,20 +287,21 @@ Usually means table creation failed. Check:
 - You have CREATE TABLE permission
 - The SQL syntax is valid for your Databricks runtime version
 
-### Validation Failures
+### Data Mismatch Failures
 
-If a test consistently fails validation:
+If a test consistently fails with mismatched results:
 1. Check the generated SQL manually
 2. Run both queries in Databricks SQL editor
-3. Compare EXPLAIN outputs
-4. File a bug report with the schema and generated SQL
+3. Compare results visually
+4. Verify the STRUCT/ARRAY reconstruction syntax
+5. File a bug report with the schema and generated SQL
 
 ## Example Test Run
 
 ```bash
-$ pytest tests/test_functional.py::TestStructTypes::test_simple_struct -v
+$ pytest tests/functional/test_functional.py::TestStructTypes::test_simple_struct -v
 
-tests/test_functional.py::TestStructTypes::test_simple_struct 
+tests/functional/test_functional.py::TestStructTypes::test_simple_struct 
 === Creating test schema: main.star_spreader_test_1705363200 ===
 ✓ Created schema: main.star_spreader_test_1705363200
 PASSED
@@ -301,7 +309,7 @@ PASSED
 === Cleaning up test schema: main.star_spreader_test_1705363200 ===
 ✓ Dropped schema: main.star_spreader_test_1705363200
 
-============================== 1 passed in 12.43s ==============================
+============================== 1 passed in 18.43s ==============================
 ```
 
 ## Contributing
@@ -311,8 +319,10 @@ When adding new test cases:
 1. Add the test to the appropriate test class (or create a new class)
 2. Follow the naming convention: `test_<description>`
 3. Use descriptive table names: `<type>_<scenario>_table`
-4. Include assertions with helpful error messages
-5. Test locally before committing
+4. **Include INSERT statements with realistic data**
+5. Include multiple rows with varied data (including NULLs and edge cases)
+6. Use helpful assertion messages
+7. Test locally before committing
 
 ## Questions?
 
