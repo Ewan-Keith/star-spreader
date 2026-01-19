@@ -122,10 +122,10 @@ def generate(
             console.print("\n" + select_statement + "\n")
 
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
 
@@ -166,7 +166,6 @@ def validate(
             console.print(
                 "[red]Error:[/red] Warehouse ID is required for validation. "
                 "Set DATABRICKS_WAREHOUSE_ID environment variable or use --warehouse-id option.",
-                err=True,
             )
             raise typer.Exit(1)
 
@@ -234,10 +233,10 @@ def validate(
             raise typer.Exit(1)
 
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}", err=True)
+        console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
 
 

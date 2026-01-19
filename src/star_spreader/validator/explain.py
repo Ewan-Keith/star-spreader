@@ -145,7 +145,7 @@ class ExplainValidator:
             "statement": explain_query,
             "catalog": catalog,
             "schema": schema,
-            "wait_timeout": "50s",  # Max allowed is 50 seconds
+            "wait_timeout": "30s",  # Max allowed is 50 seconds
         }
 
         # Add warehouse_id if provided
