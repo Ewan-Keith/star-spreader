@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich.console import Console
 from typing_extensions import Annotated
 
 from star_spreader.config import Config
@@ -20,7 +19,6 @@ app = typer.Typer(
     help="Convert SELECT * to explicit column lists using database schema",
     add_completion=False,
 )
-console = Console()
 
 
 def parse_table_name(table_name: str) -> tuple[str, str, str]:
@@ -106,25 +104,22 @@ def generate(
         fetcher = DatabricksSchemaFetcher(workspace_client=workspace)
 
         # Fetch schema
-        console.print(f"[blue]Fetching schema for {table_name}...[/blue]")
         schema_tree = fetcher.get_schema_tree(catalog, schema, table)
 
         # Generate SELECT statement
-        console.print("[blue]Generating SELECT statement...[/blue]")
         select_statement = generate_select_from_schema_tree(schema_tree)
 
         # Output result
         if output:
             output.write_text(select_statement)
-            console.print(f"[green]✓[/green] SELECT statement written to {output}")
         else:
-            console.print("\n" + select_statement + "\n")
+            print(select_statement)
 
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {e}")
+        print(f"Error: {e}")
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        print(f"Error: {e}")
         raise typer.Exit(1)
 
 
