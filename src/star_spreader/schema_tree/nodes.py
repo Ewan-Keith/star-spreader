@@ -5,7 +5,7 @@ column types and table structures in a modular, type-safe way.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List
 
 from pydantic import BaseModel, ConfigDict, Field
 

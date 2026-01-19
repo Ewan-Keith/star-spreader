@@ -4,21 +4,14 @@ This module provides a CLI for generating explicit SELECT statements
 and validating queries.
 """
 
+import argparse
+import sys
 from pathlib import Path
 from typing import Optional
-
-import typer
-from typing_extensions import Annotated
 
 from star_spreader.config import Config
 from star_spreader.generator.sql_schema_tree import generate_select_from_schema_tree
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
-
-app = typer.Typer(
-    name="star-spreader",
-    help="Convert SELECT * to explicit column lists using database schema",
-    add_completion=False,
-)
 
 
 def parse_table_name(table_name: str) -> tuple[str, str, str]:
@@ -69,35 +62,40 @@ def get_config(
     return config
 
 
-@app.command()
-def generate(
-    table_name: Annotated[str, typer.Argument(help="Table name in format catalog.schema.table")],
-    output: Annotated[
-        Optional[Path],
-        typer.Option("--output", "-o", help="Output file path (stdout if not specified)"),
-    ] = None,
-    host: Annotated[
-        Optional[str], typer.Option("--host", help="Databricks workspace host URL")
-    ] = None,
-    token: Annotated[Optional[str], typer.Option("--token", help="Databricks access token")] = None,
-) -> None:
-    """Generate explicit SELECT statement for a table.
+def main() -> None:
+    """Main entry point for the CLI."""
+    parser = argparse.ArgumentParser(
+        prog="star-spreader",
+        description="Convert SELECT * to explicit column lists using database schema",
+    )
 
-    This command fetches the schema for the specified table and generates
-    a SELECT statement with all columns explicitly listed, expanding any
-    struct fields into dotted notation with aliases.
+    parser.add_argument(
+        "table_name",
+        help="Table name in format catalog.schema.table",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Output file path (stdout if not specified)",
+    )
+    parser.add_argument(
+        "--host",
+        help="Databricks workspace host URL",
+    )
+    parser.add_argument(
+        "--token",
+        help="Databricks access token",
+    )
 
-    Example:
-        star-spreader generate main.default.my_table
+    args = parser.parse_args()
 
-        star-spreader generate main.default.my_table --output query.sql
-    """
     try:
         # Parse table name
-        catalog, schema, table = parse_table_name(table_name)
+        catalog, schema, table = parse_table_name(args.table_name)
 
         # Get configuration
-        config = get_config(host, token)
+        config = get_config(args.host, args.token)
 
         # Create schema fetcher
         workspace = config.get_workspace_client()
@@ -110,22 +108,17 @@ def generate(
         select_statement = generate_select_from_schema_tree(schema_tree)
 
         # Output result
-        if output:
-            output.write_text(select_statement)
+        if args.output:
+            args.output.write_text(select_statement)
         else:
             print(select_statement)
 
     except ValueError as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1)
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        print(f"Error: {e}")
-        raise typer.Exit(1)
-
-
-def main() -> None:
-    """Main entry point for the CLI."""
-    app()
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
