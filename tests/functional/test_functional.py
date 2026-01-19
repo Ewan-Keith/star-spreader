@@ -16,7 +16,6 @@ Configuration:
 
 import os
 import time
-import uuid
 from typing import Generator
 
 import pytest
@@ -34,9 +33,6 @@ def workspace_client() -> WorkspaceClient:
     host = os.getenv("DATABRICKS_HOST")
     token = os.getenv("DATABRICKS_TOKEN")
 
-    if not host or not token:
-        pytest.skip("DATABRICKS_HOST and DATABRICKS_TOKEN environment variables not set")
-
     return WorkspaceClient(host=host, token=token)
 
 
@@ -49,9 +45,7 @@ def warehouse_id() -> str:
     - Warehouse ID: abc123xyz
     """
     warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID")
-    if not warehouse_id:
-        pytest.skip("DATABRICKS_WAREHOUSE_ID environment variable not set")
-    return warehouse_id
+    return str(warehouse_id)
 
 
 @pytest.fixture(scope="module")
