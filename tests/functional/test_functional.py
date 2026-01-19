@@ -6,16 +6,18 @@ and validate that the generated SQL returns identical results to SELECT *.
 
 Configuration:
     Authenticate using Databricks Unified Authentication:
-    - Recommended: Run `databricks auth login` before running tests
-    - Alternative: Set environment variables (DATABRICKS_HOST, DATABRICKS_TOKEN)
+    - Run `databricks auth login` to create a DEFAULT profile
+    - Or use `databricks auth login --profile test` to create a named profile
 
     Required environment variables:
     - DATABRICKS_WAREHOUSE_ID: SQL warehouse HTTP path (e.g., '/sql/1.0/warehouses/abc123xyz')
                                 or warehouse ID (e.g., 'abc123xyz')
 
     Optional environment variables:
-    - DATABRICKS_CATALOG: Catalog to use (default: 'main')
+    - DATABRICKS_PROFILE: Profile name to use (default: DEFAULT)
     - FUNCTIONAL_TEST_SCHEMA: Schema name for tests (default: 'star_spreader_test')
+
+    Note: Catalog is hard-coded to 'main' - table/schema config via env vars has been removed.
 """
 
 import os
@@ -32,8 +34,9 @@ from star_spreader.generator.sql_schema_tree import generate_select_from_schema_
 
 @pytest.fixture(scope="module")
 def workspace_client() -> WorkspaceClient:
-    """Create a WorkspaceClient for the test session using unified auth."""
-    return WorkspaceClient()
+    """Create a WorkspaceClient for the test session using profile."""
+    profile = os.getenv("DATABRICKS_PROFILE", "DEFAULT")
+    return WorkspaceClient(profile=profile)
 
 
 @pytest.fixture(scope="module")
@@ -50,8 +53,8 @@ def warehouse_id() -> str:
 
 @pytest.fixture(scope="module")
 def catalog() -> str:
-    """Get the catalog to use for tests."""
-    return os.getenv("DATABRICKS_CATALOG", "main")
+    """Get the catalog to use for tests (hardcoded to 'main')."""
+    return "main"
 
 
 @pytest.fixture(scope="module")

@@ -28,7 +28,7 @@ class DatabricksSchemaFetcher(SchemaFetcher):
     This fetcher connects to a Databricks workspace and retrieves detailed schema
     information including complex nested types (STRUCT, ARRAY, MAP).
 
-    Uses Databricks Unified Authentication for credential discovery.
+    Uses Databricks Unified Authentication with profile support.
 
     Attributes:
         workspace: The Databricks WorkspaceClient instance for API calls.
@@ -37,30 +37,36 @@ class DatabricksSchemaFetcher(SchemaFetcher):
     def __init__(
         self,
         workspace_client: Optional[WorkspaceClient] = None,
+        profile: str = "DEFAULT",
     ) -> None:
         """Initialize the Databricks schema fetcher.
 
-        Uses Databricks Unified Authentication to discover credentials from your
-        local environment (databricks CLI, Azure CLI, environment variables, etc.).
+        Uses Databricks Unified Authentication with profile support. Profiles are
+        configured in ~/.databrickscfg via `databricks auth login`.
 
         Args:
-            workspace_client: Pre-configured WorkspaceClient instance. If not provided,
-                            creates a new client using unified auth discovery.
+            workspace_client: Pre-configured WorkspaceClient instance. If provided,
+                            the profile argument is ignored.
+            profile: The profile name to use from ~/.databrickscfg (default: "DEFAULT").
+                    Only used if workspace_client is not provided.
 
         Example:
-            >>> # Using unified auth (recommended)
+            >>> # Using default profile
             >>> fetcher = DatabricksSchemaFetcher()
 
-            >>> # Or with explicit config
-            >>> from star_spreader.config import Config
-            >>> config = Config()
-            >>> fetcher = DatabricksSchemaFetcher(workspace_client=config.get_workspace_client())
+            >>> # Using named profile
+            >>> fetcher = DatabricksSchemaFetcher(profile="production")
+
+            >>> # Or with pre-configured client
+            >>> from star_spreader.config import get_workspace_client
+            >>> client = get_workspace_client(profile="production")
+            >>> fetcher = DatabricksSchemaFetcher(workspace_client=client)
         """
         if workspace_client is not None:
             self.workspace = workspace_client
         else:
-            # Use unified auth discovery
-            self.workspace = WorkspaceClient()
+            # Use unified auth with specified profile
+            self.workspace = WorkspaceClient(profile=profile)
 
     def get_schema_tree(self, catalog: str, schema: str, table: str) -> TableSchemaNode:
         """Fetch schema information for a Databricks table and return as schema tree.

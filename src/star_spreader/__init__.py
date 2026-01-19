@@ -1,6 +1,6 @@
 """Star Spreader - Convert SELECT * to explicit column lists."""
 
-from star_spreader.config import Config, load_config
+from star_spreader.config import Config, get_workspace_client
 from star_spreader.generator.sql_schema_tree import (
     SchemaTreeSQLGenerator,
     generate_select_from_schema_tree,
@@ -19,7 +19,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "Config",
-    "load_config",
+    "get_workspace_client",
     "SchemaTreeSQLGenerator",
     "generate_select_from_schema_tree",
     "DatabricksSchemaFetcher",

@@ -1,7 +1,7 @@
 """Configuration management for star-spreader.
 
-This module provides a pydantic-based configuration system that loads settings
-from environment variables and provides convenient access to Databricks clients.
+This module provides configuration for Databricks workspace connections using
+unified authentication profiles.
 """
 
 from typing import Optional
@@ -14,30 +14,27 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Config(BaseSettings):
     """Configuration settings for star-spreader.
 
-    This class uses pydantic-settings to automatically load configuration
-    from environment variables. All settings can be overridden by setting
-    the corresponding environment variable.
+    Uses Databricks Unified Authentication with profile support. Authentication is
+    handled automatically by the Databricks SDK using profiles from ~/.databrickscfg.
 
     Authentication:
-        This uses Databricks Unified Authentication which automatically
-        discovers credentials from your local environment:
-        - Databricks CLI authentication (`databricks auth login`)
-        - Azure CLI authentication
-        - Environment variables (DATABRICKS_HOST, DATABRICKS_TOKEN)
-        - Configuration file (~/.databrickscfg)
-        - Other cloud provider auth methods
+        Authenticate using the Databricks CLI:
+        - `databricks auth login` - Creates a DEFAULT profile
+        - `databricks auth login --profile <name>` - Creates a named profile
 
     Environment Variables:
-        DATABRICKS_HOST: (Optional) Databricks workspace URL to connect to
-        DATABRICKS_WAREHOUSE_ID: SQL warehouse HTTP path (e.g., '/sql/1.0/warehouses/abc123') or ID
-        DATABRICKS_CATALOG: Default catalog name (e.g., 'main', 'hive_metastore')
-        DATABRICKS_SCHEMA: Default schema/database name
+        DATABRICKS_WAREHOUSE_ID: (Optional) SQL warehouse ID for query execution
+                                 Only needed for functional tests
 
     Example:
         >>> # Authenticate once with databricks CLI
         >>> # $ databricks auth login
         >>> config = Config()
-        >>> client = config.get_workspace_client()  # Uses local databricks auth
+        >>> client = config.get_workspace_client()  # Uses DEFAULT profile
+
+        >>> # Or use a specific profile
+        >>> config = Config()
+        >>> client = config.get_workspace_client(profile="production")
     """
 
     model_config = SettingsConfigDict(
@@ -47,84 +44,36 @@ class Config(BaseSettings):
         extra="ignore",
     )
 
-    databricks_host: Optional[str] = Field(
-        default=None,
-        description="Databricks workspace host URL (optional, uses unified auth discovery if not set)",
-    )
-
     databricks_warehouse_id: Optional[str] = Field(
         default=None,
-        description="Databricks SQL warehouse ID or HTTP path (e.g., '1b046cf442ff1288' or '/sql/1.0/warehouses/1b046cf442ff1288')",
+        description="Databricks SQL warehouse ID (optional, only needed for query execution)",
     )
 
-    databricks_catalog: str = Field(
-        default="main",
-        description="Default Databricks catalog name",
-    )
-
-    databricks_schema: str = Field(
-        default="default",
-        description="Default Databricks schema/database name",
-    )
-
-    def get_workspace_client(self) -> WorkspaceClient:
+    def get_workspace_client(self, profile: str = "DEFAULT") -> WorkspaceClient:
         """Create and return a configured Databricks WorkspaceClient.
 
-        This method uses Databricks Unified Authentication which automatically
-        discovers credentials from your local environment:
-        - Databricks CLI authentication (`databricks auth login`)
-        - Azure CLI authentication
-        - Environment variables (DATABRICKS_HOST, DATABRICKS_TOKEN)
-        - Configuration file (~/.databrickscfg)
-        - Other cloud provider auth methods
+        Uses Databricks Unified Authentication with the specified profile from
+        ~/.databrickscfg. The profile contains workspace URL and authentication
+        credentials.
+
+        Args:
+            profile: The profile name to use from ~/.databrickscfg (default: "DEFAULT")
 
         Returns:
             A configured WorkspaceClient instance ready for use.
 
         Raises:
-            Exception: If authentication fails or credentials are invalid.
+            Exception: If authentication fails or the profile doesn't exist.
 
         Example:
-            >>> # Authenticate with databricks CLI first
-            >>> # $ databricks auth login
+            >>> # Use default profile
             >>> config = Config()
             >>> workspace = config.get_workspace_client()
-            >>> tables = workspace.tables.list(catalog_name="main", schema_name="default")
+
+            >>> # Use named profile
+            >>> workspace = config.get_workspace_client(profile="production")
         """
-        if self.databricks_host:
-            # Host specified - use unified auth with specific host
-            return WorkspaceClient(host=self.databricks_host)
-        else:
-            # No host specified - use unified auth discovery
-            return WorkspaceClient()
-
-    def validate_config(self) -> dict[str, bool]:
-        """Validate the current configuration and report status.
-
-        Checks which settings are explicitly configured. Note that workspace
-        authentication works via unified auth even if workspace_configured is False.
-
-        Returns:
-            Dictionary with validation status for each setting:
-            {
-                "workspace_configured": bool,  # True if explicit host provided
-                "warehouse_configured": bool,
-                "catalog_configured": bool,
-                "schema_configured": bool,
-            }
-
-        Example:
-            >>> config = Config()
-            >>> status = config.validate_config()
-            >>> if not status["workspace_configured"]:
-            ...     print("Using unified authentication with auto-discovery")
-        """
-        return {
-            "workspace_configured": bool(self.databricks_host),
-            "warehouse_configured": bool(self.databricks_warehouse_id),
-            "catalog_configured": bool(self.databricks_catalog),
-            "schema_configured": bool(self.databricks_schema),
-        }
+        return WorkspaceClient(profile=profile)
 
     def __repr__(self) -> str:
         """Return a string representation of the configuration.
@@ -132,26 +81,26 @@ class Config(BaseSettings):
         Returns:
             String representation of the config.
         """
-        return (
-            f"Config("
-            f"host={self.databricks_host!r}, "
-            f"warehouse_id={self.databricks_warehouse_id!r}, "
-            f"catalog={self.databricks_catalog!r}, "
-            f"schema={self.databricks_schema!r}"
-            f")"
-        )
+        return f"Config(warehouse_id={self.databricks_warehouse_id!r})"
 
 
-def load_config() -> Config:
-    """Load configuration from environment variables.
+def get_workspace_client(profile: str = "DEFAULT") -> WorkspaceClient:
+    """Create a Databricks WorkspaceClient using the specified profile.
 
-    This is a convenience function that creates and returns a Config instance.
+    This is a convenience function for quickly creating a client.
+
+    Args:
+        profile: The profile name to use from ~/.databrickscfg (default: "DEFAULT")
 
     Returns:
-        A Config instance with settings loaded from environment.
+        A configured WorkspaceClient instance.
 
     Example:
-        >>> config = load_config()
-        >>> workspace = config.get_workspace_client()
+        >>> # Use default profile
+        >>> client = get_workspace_client()
+
+        >>> # Use named profile
+        >>> client = get_workspace_client(profile="production")
     """
-    return Config()
+    config = Config()
+    return config.get_workspace_client(profile=profile)

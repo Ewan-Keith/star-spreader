@@ -18,9 +18,9 @@ class TestDatabricksSchemaFetcher:
         fetcher = DatabricksSchemaFetcher(workspace_client=mock_client)
         assert fetcher.workspace is mock_client
 
-    def test_init_without_workspace_client_uses_unified_auth(self) -> None:
-        """Test that initialization without workspace_client uses unified auth."""
-        # This should not raise an error, but will use unified auth discovery
+    def test_init_with_default_profile(self) -> None:
+        """Test that initialization without workspace_client uses default profile."""
+        # This should not raise an error, uses DEFAULT profile
         fetcher = DatabricksSchemaFetcher()
         assert fetcher.workspace is not None
 

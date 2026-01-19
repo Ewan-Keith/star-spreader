@@ -39,89 +39,82 @@ Star Spreader provides a convenient CLI for common tasks:
 
 ```bash
 # Generate explicit SELECT statement for a table
-star-spreader generate main.default.my_table
+star-spreader main.default.my_table
 
 # Save output to file
-star-spreader generate main.default.my_table --output query.sql
+star-spreader main.default.my_table --output query.sql
+
+# Use a specific profile
+star-spreader main.default.my_table --profile production
 ```
 
 ### Python API
 
 ```python
-from star_spreader.config import load_config
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
-from star_spreader.generator.sql import SQLGenerator
+from star_spreader.generator.sql_schema_tree import generate_select_from_schema_tree
 
-# Load configuration from environment variables
-config = load_config()
-
-# Fetch table schema
-fetcher = DatabricksSchemaFetcher(workspace_client=config.get_workspace_client())
-schema = fetcher.fetch_schema(
-    catalog=config.databricks_catalog,
+# Fetch table schema using default profile
+fetcher = DatabricksSchemaFetcher()
+schema_tree = fetcher.get_schema_tree(
+    catalog="main",
     schema="my_database",
     table="my_table"
 )
 
 # Generate explicit SELECT statement
-generator = SQLGenerator(schema)
-explicit_sql = generator.generate_select()
+explicit_sql = generate_select_from_schema_tree(schema_tree)
 print(explicit_sql)
 ```
 
 ## Configuration
 
-Star Spreader uses **Databricks Unified Authentication**, which automatically discovers credentials from your local environment. No configuration is required if you're already authenticated with the Databricks CLI.
+Star Spreader uses **Databricks Unified Authentication with profile support**. Authentication is handled through the Databricks CLI, which stores credentials in `~/.databrickscfg`.
 
 ### Authentication Setup
 
-**Recommended: Use Databricks CLI**
+**Step 1: Authenticate with Databricks CLI**
 
 ```bash
-# Authenticate once with the Databricks CLI
+# Create a default profile
 databricks auth login --host https://your-workspace.cloud.databricks.com
 
-# Then use star-spreader without any additional configuration
-star-spreader generate main.default.my_table
+# Or create a named profile for multiple workspaces
+databricks auth login --profile production --host https://prod.cloud.databricks.com
+databricks auth login --profile staging --host https://staging.cloud.databricks.com
 ```
 
-### How Authentication Works
-
-Star Spreader automatically discovers your Databricks credentials using the [Databricks Unified Authentication](https://docs.databricks.com/dev-tools/auth/unified-auth.html) chain:
-
-1. **Databricks CLI** (`databricks auth login`) - Recommended
-2. **Azure CLI** (for Azure Databricks users: `az login`)
-3. **Environment Variables** (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`)
-4. **Configuration File** (`~/.databrickscfg`)
-5. **Cloud provider auth** (AWS, Azure, GCP)
-
-### Optional Configuration
-
-You can optionally set these environment variables in a `.env` file:
+**Step 2: Use star-spreader**
 
 ```bash
-# Optional: Specify a particular workspace (if you have multiple profiles)
-DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+# Use the default profile
+star-spreader main.default.my_table
 
-# Optional: Default catalog and schema
-DATABRICKS_CATALOG=main
-DATABRICKS_SCHEMA=default
+# Or specify a named profile
+star-spreader main.default.my_table --profile production
 ```
+
+### How Profiles Work
+
+Profiles are stored in `~/.databrickscfg` and contain:
+- Workspace URL
+- Authentication credentials
+- Other workspace-specific settings
+
+Star Spreader uses the `DEFAULT` profile by default. Use the `--profile` flag to select a different profile.
+
+For more details, see the [Databricks Unified Authentication documentation](https://docs.databricks.com/dev-tools/auth/unified-auth.html).
 
 ### Using the Config Module
 
 ```python
-from star_spreader.config import Config
+from star_spreader.config import get_workspace_client
 
-# Load configuration (uses unified auth automatically)
-config = Config()
+# Get a workspace client using the default profile
+workspace = get_workspace_client()
 
-# Access configuration
-print(config.databricks_catalog)  # 'main'
-print(config.databricks_schema)   # 'default'
-
-# Get a workspace client (discovers credentials automatically)
-workspace = config.get_workspace_client()
+# Or specify a named profile
+workspace = get_workspace_client(profile="production")
 ```
 
 ## CLI Reference
@@ -132,49 +125,42 @@ workspace = config.get_workspace_client()
 Generate explicit SELECT statement for a table.
 
 ```bash
-star-spreader generate <table_name> [OPTIONS]
+star-spreader <table_name> [OPTIONS]
+
+Arguments:
+  table_name           Fully qualified table name (catalog.schema.table)
 
 Options:
   --output, -o PATH    Output file path (stdout if not specified)
-  --host TEXT         Databricks workspace host URL (optional)
-  --help              Show help message
+  --profile TEXT       Databricks profile to use (default: DEFAULT)
+  --help               Show help message
 ```
 
 Example:
 ```bash
-# Output to console
-star-spreader generate main.analytics.user_events
+# Output to console using default profile
+star-spreader main.analytics.user_events
 
 # Save to file
-star-spreader generate main.analytics.user_events --output select.sql
+star-spreader main.analytics.user_events --output select.sql
 
-# Specify a particular workspace (if you have multiple)
-star-spreader generate main.analytics.user_events \
-  --host https://myworkspace.cloud.databricks.com
+# Use a specific profile (if you have multiple workspaces)
+star-spreader main.analytics.user_events --profile production
 ```
 
 ### CLI Configuration
 
-The CLI uses Databricks Unified Authentication by default. If you're authenticated with the Databricks CLI, no additional configuration is needed:
+The CLI uses profiles from `~/.databrickscfg`. No environment variables are needed for workspace or table information - everything is specified via command-line arguments.
 
 ```bash
 # Authenticate once (if not already done)
 databricks auth login
 
 # Then use star-spreader directly
-star-spreader generate main.default.my_table
-```
+star-spreader main.default.my_table
 
-Optionally specify a particular workspace:
-
-```bash
-# Specify workspace via command-line option
-star-spreader generate main.default.my_table \
-  --host https://your-workspace.cloud.databricks.com
-
-# Or via environment variable
-export DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-star-spreader generate main.default.my_table
+# Use a specific profile for a different workspace
+star-spreader main.default.my_table --profile production
 ```
 
 ## Usage Examples
@@ -182,24 +168,23 @@ star-spreader generate main.default.my_table
 ### Basic Schema Fetching
 
 ```python
-from star_spreader.config import load_config
 from star_spreader.schema.databricks import DatabricksSchemaFetcher
 
-# Initialize using unified auth (discovers credentials automatically)
-config = load_config()
-fetcher = DatabricksSchemaFetcher(
-    workspace_client=config.get_workspace_client()
-)
+# Initialize using default profile
+fetcher = DatabricksSchemaFetcher()
+
+# Or use a named profile
+fetcher = DatabricksSchemaFetcher(profile="production")
 
 # Fetch schema for a table
-schema = fetcher.fetch_schema(
+schema_tree = fetcher.get_schema_tree(
     catalog="main",
     schema="analytics",
     table="user_events"
 )
 
 # Inspect columns
-for col in schema.columns:
+for col in schema_tree.columns:
     print(f"{col.name}: {col.data_type}")
 ```
 
@@ -263,12 +248,8 @@ Run examples:
 # Authenticate with Databricks CLI (if not already done)
 databricks auth login
 
-# Set table name to use
-export DATABRICKS_TABLE=your_table_name
-export DATABRICKS_CATALOG=main  # Optional
-export DATABRICKS_SCHEMA=default  # Optional
-
-# Run the end-to-end example
+# Examples may need to be updated to use the new profile-based API
+# Check each example file for specific usage instructions
 python examples/end_to_end_example.py
 ```
 
