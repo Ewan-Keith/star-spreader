@@ -1,7 +1,12 @@
-"""SQL generation module for expanding SELECT * into explicit column lists."""
+"""SQL generation module for expanding SELECT * into explicit column lists.
+
+This module maintains backward compatibility while internally using the schema tree approach.
+"""
 
 from typing import List
 
+from star_spreader.schema_tree.builder import SchemaTreeBuilder
+from star_spreader.generator.sql_schema_tree import SchemaTreeSQLGenerator
 from star_spreader.schema.base import ColumnInfo, TableSchema
 
 
@@ -28,17 +33,17 @@ class SQLGenerator:
         This method explicitly selects all fields (including nested struct members)
         and reconstructs complex types to produce output identical to SELECT *.
 
+        This now uses the schema tree approach internally for better modularity.
+
         Returns:
             A complete SELECT statement string with format:
             SELECT col1, col2, STRUCT(field1, field2) AS struct_col, ...
             FROM catalog.schema.table
         """
-        column_expressions = self._expand_all_columns()
-
-        select_clause = "SELECT " + ",\n       ".join(column_expressions)
-        from_clause = f"FROM {self._get_full_table_name()}"
-
-        return f"{select_clause}\n{from_clause}"
+        # Convert to AST and use schema tree-based generator
+        ast_node = SchemaTreeBuilder.build_from_table_schema(self.table_schema)
+        ast_generator = SchemaTreeSQLGenerator(ast_node)
+        return ast_generator.generate_select()
 
     def _get_full_table_name(self) -> str:
         """Get the fully qualified table name with backtick quoting.

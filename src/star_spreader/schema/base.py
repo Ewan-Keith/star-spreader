@@ -4,9 +4,12 @@ This module defines the core data models and abstract interfaces for schema fetc
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from star_spreader.schema_tree.nodes import TableSchemaNode
 
 
 class ColumnInfo(BaseModel):
@@ -77,3 +80,26 @@ class SchemaFetcher(ABC):
             Any implementation-specific exceptions for connection or query errors.
         """
         raise NotImplementedError("Subclasses must implement fetch_schema")
+
+    def fetch_schema_ast(self, catalog: str, schema: str, table: str):
+        """Fetch the schema for a specific table and return it as a schema tree.
+
+        This is the primary method that should be used by application logic.
+        It fetches the schema and converts it to a schema tree representation for
+        maximum modularity.
+
+        Args:
+            catalog: The catalog name containing the table.
+            schema: The schema/database name containing the table.
+            table: The table name to fetch schema for.
+
+        Returns:
+            A TableSchemaNode AST representing the complete table schema.
+
+        Raises:
+            Any implementation-specific exceptions for connection or query errors.
+        """
+        from star_spreader.schema_tree.builder import SchemaTreeBuilder
+
+        table_schema = self.fetch_schema(catalog, schema, table)
+        return SchemaTreeBuilder.build_from_table_schema(table_schema)
