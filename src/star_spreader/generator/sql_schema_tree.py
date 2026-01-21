@@ -51,11 +51,8 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
             Backtick-quoted column reference
         """
         if self.lambda_var:
-            # We're inside an array context - use lambda variable
-            if self.parent_path:
-                return f"{self.lambda_var}.`{self.parent_path}`.`{node.name}`"
-            else:
-                return f"{self.lambda_var}.`{node.name}`"
+            # We're inside an array context - use lambda variable with proper path quoting
+            return self._build_lambda_field_reference(node.name)
         else:
             # Top-level or struct field - build full path
             if self.parent_path:
@@ -102,7 +99,7 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
                 parent_path=struct_path,
                 lambda_var=self.lambda_var,
                 depth=self.depth,
-                indent_level=nested_indent_level,
+                indent_level=nested_indent_level
             )
             field_expr = field.accept(field_visitor)
             field_expressions.append(f"{field_expr} AS `{field.name}`")
@@ -128,11 +125,8 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
         """
         # Build the array path
         if self.lambda_var:
-            # Inside another array context
-            if self.parent_path:
-                array_path = f"{self.lambda_var}.`{self.parent_path}`.`{node.name}`"
-            else:
-                array_path = f"{self.lambda_var}.`{node.name}`"
+            # Inside another array context - use proper path quoting
+            array_path = self._build_lambda_field_reference(node.name)
         else:
             # Top-level array
             if self.parent_path:
@@ -162,7 +156,7 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
                 parent_path="",
                 lambda_var=new_lambda_var,
                 depth=new_depth,
-                indent_level=nested_indent_level,
+                indent_level=nested_indent_level
             )
             element_expr = element.accept(element_visitor)
 
@@ -187,11 +181,8 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
             Backtick-quoted map reference
         """
         if self.lambda_var:
-            # Inside array context
-            if self.parent_path:
-                return f"{self.lambda_var}.`{self.parent_path}`.`{node.name}`"
-            else:
-                return f"{self.lambda_var}.`{node.name}`"
+            # Inside array context - use proper path quoting
+            return self._build_lambda_field_reference(node.name)
         else:
             # Top-level map
             if self.parent_path:
@@ -199,6 +190,26 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
             else:
                 path = node.name
             return self._quote_column_path(path)
+
+    def _build_lambda_field_reference(self, field_name: str) -> str:
+        """Build a field reference within a lambda/array context.
+
+        This method properly handles nested paths by quoting each component
+        separately to avoid treating dotted paths as single field names.
+
+        Args:
+            field_name: The field name to reference (may be a simple name or dotted path)
+
+        Returns:
+            Properly quoted field reference (e.g., 'item.`parent`.`child`.`field`')
+        """
+        if self.parent_path:
+            # Quote parent path components separately
+            parent_parts = self.parent_path.split(".")
+            quoted_parent = ".".join([f"`{part}`" for part in parent_parts])
+            return f"{self.lambda_var}.{quoted_parent}.`{field_name}`"
+        else:
+            return f"{self.lambda_var}.`{field_name}`"
 
     def _quote_column_path(self, path: str) -> str:
         """Quote a column path with backticks for Databricks compatibility.

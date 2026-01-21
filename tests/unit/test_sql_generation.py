@@ -705,6 +705,97 @@ def test_complex_real_world_scenario():
     assert "`tags`" in result  # MAP is referenced directly
 
 
+def test_nested_struct_in_array_element():
+    """Test that nested structs within array elements are correctly quoted.
+
+    This test specifically covers the bug where field names like 'config_v2.settings'
+    were being treated as a single field name with a dot, instead of properly being
+    referenced as nested struct access: config_v2 -> settings.
+
+    The correct SQL should be: item.`config_v2`.`settings`.`start_date`
+    NOT: item.`config_v2.settings`.`start_date`
+    """
+    schema_tree = TableSchemaNode(
+        catalog="test_catalog",
+        schema_name="test_schema",
+        table_name="test_table",
+        columns=[
+            ArrayNode(
+                name="records",
+                data_type="ARRAY<STRUCT<...>>",
+                nullable=True,
+                element_type=StructNode(
+                    name="element",
+                    data_type="STRUCT<...>",
+                    nullable=True,
+                    fields=[
+                        SimpleColumnNode(name="record_date", data_type="DATE", nullable=True),
+                        SimpleColumnNode(name="category", data_type="STRING", nullable=True),
+                        # This is the key part: a struct named config_v2 that itself
+                        # contains nested structs
+                        StructNode(
+                            name="config_v2",
+                            data_type="STRUCT<...>",
+                            nullable=True,
+                            fields=[
+                                StructNode(
+                                    name="settings",
+                                    data_type="STRUCT<...>",
+                                    nullable=True,
+                                    fields=[
+                                        SimpleColumnNode(
+                                            name="start_date",
+                                            data_type="DATE",
+                                            nullable=True,
+                                        ),
+                                        SimpleColumnNode(
+                                            name="end_date",
+                                            data_type="DATE",
+                                            nullable=True,
+                                        ),
+                                    ],
+                                ),
+                                StructNode(
+                                    name="metadata",
+                                    data_type="STRUCT<...>",
+                                    nullable=True,
+                                    fields=[
+                                        SimpleColumnNode(
+                                            name="label",
+                                            data_type="STRING",
+                                            nullable=True,
+                                        ),
+                                        SimpleColumnNode(
+                                            name="description",
+                                            data_type="STRING",
+                                            nullable=True,
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+            ),
+        ],
+    )
+
+    generator = SchemaTreeSQLGenerator(schema_tree)
+    result = generator.generate_select()
+
+    # The critical assertion: each component should be separately quoted
+    # Correct pattern: item.`config_v2`.`settings`.`start_date`
+    assert "item.`config_v2`.`settings`.`start_date`" in result
+    assert "item.`config_v2`.`settings`.`end_date`" in result
+    assert "item.`config_v2`.`metadata`.`label`" in result
+    assert "item.`config_v2`.`metadata`.`description`" in result
+
+    # Make sure the WRONG pattern is NOT present
+    # Wrong pattern: item.`config_v2.settings`.`start_date`
+    assert "item.`config_v2.settings`" not in result
+    assert "item.`config_v2.metadata`" not in result
+
+
 def test_convenience_function():
     """Test the convenience function generate_select_from_schema_tree."""
     schema_tree = TableSchemaNode(
