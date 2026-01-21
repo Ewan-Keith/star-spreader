@@ -53,8 +53,8 @@ def warehouse_id() -> str:
 
 @pytest.fixture(scope="module")
 def catalog() -> str:
-    """Get the catalog to use for tests (hardcoded to 'main')."""
-    return "main"
+    """Get the catalog to use for tests (hardcoded to 'workspace')."""
+    return "workspace"
 
 
 @pytest.fixture(scope="module")
