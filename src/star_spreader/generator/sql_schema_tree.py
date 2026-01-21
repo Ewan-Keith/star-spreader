@@ -19,30 +19,34 @@ from star_spreader.schema_tree.visitor import SchemaTreeVisitor
 
 class SQLGeneratorVisitor(SchemaTreeVisitor):
     """Schema tree visitor that generates SQL expressions for each node type.
-    
+
     This visitor traverses the schema tree and generates appropriate SQL expressions
     for each column type, handling complex nested structures with proper
     STRUCT reconstruction and TRANSFORM for arrays.
     """
 
-    def __init__(self, parent_path: str = "", lambda_var: str = "", depth: int = 0):
+    def __init__(
+        self, parent_path: str = "", lambda_var: str = "", depth: int = 0, indent_level: int = 0
+    ):
         """Initialize the SQL generator visitor.
-        
+
         Args:
             parent_path: The parent column path for nested traversal
             lambda_var: The lambda variable name for array contexts
             depth: Current nesting depth for lambda variable generation
+            indent_level: Current indentation level for formatting (in spaces)
         """
         self.parent_path = parent_path
         self.lambda_var = lambda_var
         self.depth = depth
+        self.indent_level = indent_level
 
     def visit_simple_column(self, node: SimpleColumnNode) -> str:
         """Visit a simple column node and generate SQL reference.
-        
+
         Args:
             node: The simple column node
-            
+
         Returns:
             Backtick-quoted column reference
         """
@@ -62,10 +66,10 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
 
     def visit_struct(self, node: StructNode) -> str:
         """Visit a struct node and generate STRUCT() expression.
-        
+
         Args:
             node: The struct node
-            
+
         Returns:
             STRUCT() SQL expression with all fields
         """
@@ -89,27 +93,36 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
 
         # Build STRUCT() with all fields
         field_expressions = []
+        # Increase indent level for nested content
+        nested_indent_level = self.indent_level + 2
+
         for field in node.fields:
-            # Create visitor for field with updated parent path
+            # Create visitor for field with updated parent path and indent level
             field_visitor = SQLGeneratorVisitor(
                 parent_path=struct_path,
                 lambda_var=self.lambda_var,
-                depth=self.depth
+                depth=self.depth,
+                indent_level=nested_indent_level,
             )
             field_expr = field.accept(field_visitor)
             field_expressions.append(f"{field_expr} AS `{field.name}`")
 
-        return f"STRUCT({', '.join(field_expressions)})"
+        # Format with proper indentation
+        indent = " " * self.indent_level
+        nested_indent = " " * nested_indent_level
+        fields_formatted = f",\n{nested_indent}".join(field_expressions)
+
+        return f"STRUCT(\n{nested_indent}{fields_formatted}\n{indent})"
 
     def visit_array(self, node: ArrayNode) -> str:
         """Visit an array node and generate appropriate SQL expression.
-        
+
         For ARRAY<primitive>, returns simple reference.
         For ARRAY<STRUCT>, generates TRANSFORM expression.
-        
+
         Args:
             node: The array node
-            
+
         Returns:
             SQL expression for the array
         """
@@ -140,28 +153,36 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
                 new_depth = 0
             new_lambda_var = self._generate_lambda_var(new_depth)
 
+            # Increase indent level for the transform content
+            nested_indent_level = self.indent_level + 2
+
             # For struct elements, we don't need parent_path since the lambda variable
             # directly references the struct
             element_visitor = SQLGeneratorVisitor(
                 parent_path="",
                 lambda_var=new_lambda_var,
-                depth=new_depth
+                depth=new_depth,
+                indent_level=nested_indent_level,
             )
             element_expr = element.accept(element_visitor)
 
-            return f"TRANSFORM({array_path}, {new_lambda_var} -> {element_expr})"
+            # Format with proper indentation
+            indent = " " * self.indent_level
+            nested_indent = " " * nested_indent_level
+
+            return f"TRANSFORM(\n{nested_indent}{array_path},\n{nested_indent}{new_lambda_var} -> {element_expr}\n{indent})"
         else:
             # Simple array - just reference it
             return array_path
 
     def visit_map(self, node: MapNode) -> str:
         """Visit a map node and generate SQL reference.
-        
+
         Maps are referenced as-is without reconstruction.
-        
+
         Args:
             node: The map node
-            
+
         Returns:
             Backtick-quoted map reference
         """
@@ -181,10 +202,10 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
 
     def _quote_column_path(self, path: str) -> str:
         """Quote a column path with backticks for Databricks compatibility.
-        
+
         Args:
             path: Column path with dots (e.g., 'parent.child.field')
-            
+
         Returns:
             Backtick-quoted path (e.g., '`parent`.`child`.`field`')
         """
@@ -194,10 +215,10 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
 
     def _generate_lambda_var(self, depth: int) -> str:
         """Generate a unique lambda variable name based on nesting depth.
-        
+
         Args:
             depth: The nesting depth (0 for 'item', 1 for 'item2', etc.)
-            
+
         Returns:
             Lambda variable name (e.g., 'item', 'item2', 'item3')
         """
@@ -209,13 +230,13 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
 
 class SchemaTreeSQLGenerator:
     """Generates explicit SELECT statements from schema tree representation.
-    
+
     This is the main interface for SQL generation using the schema tree approach.
     """
 
     def __init__(self, table_schema_node: TableSchemaNode):
         """Initialize the schema tree SQL generator.
-        
+
         Args:
             table_schema_node: The schema tree representation of the table schema
         """
@@ -223,12 +244,14 @@ class SchemaTreeSQLGenerator:
 
     def generate_select(self) -> str:
         """Generate a complete SELECT statement with all fields explicitly listed.
-        
+
         Returns:
             A complete SELECT statement string
         """
         column_expressions = self._expand_all_columns()
 
+        # Join column expressions - each top-level column starts at column 7 (after "SELECT ")
+        # But nested content will be indented from its parent
         select_clause = "SELECT " + ",\n       ".join(column_expressions)
         from_clause = f"FROM {self._get_full_table_name()}"
 
@@ -236,7 +259,7 @@ class SchemaTreeSQLGenerator:
 
     def _get_full_table_name(self) -> str:
         """Get the fully qualified table name with backtick quoting.
-        
+
         Returns:
             Backtick-quoted table name in format: `catalog`.`schema`.`table`
         """
@@ -244,7 +267,7 @@ class SchemaTreeSQLGenerator:
 
     def _expand_all_columns(self) -> List[str]:
         """Generate column expressions for all top-level columns.
-        
+
         Returns:
             List of column expression strings
         """
@@ -257,14 +280,15 @@ class SchemaTreeSQLGenerator:
 
     def _expand_column(self, column: SchemaTreeNode) -> str:
         """Generate SQL expression for a single top-level column.
-        
+
         Args:
             column: The schema tree node representing the column
-            
+
         Returns:
             SQL expression for the column
         """
-        visitor = SQLGeneratorVisitor(parent_path="", lambda_var="", depth=0)
+        # Start with indent level 7 (for alignment with "SELECT ")
+        visitor = SQLGeneratorVisitor(parent_path="", lambda_var="", depth=0, indent_level=7)
         expr = column.accept(visitor)
 
         # For complex types, add alias
@@ -288,10 +312,10 @@ class SchemaTreeSQLGenerator:
 
 def generate_select_from_schema_tree(table_schema_node: TableSchemaNode) -> str:
     """Convenience function to generate a SELECT statement from a schema tree.
-    
+
     Args:
         table_schema_node: The schema tree representation of the table schema
-        
+
     Returns:
         A complete SELECT statement string
     """
