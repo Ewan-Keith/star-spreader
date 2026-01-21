@@ -25,17 +25,21 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
     STRUCT reconstruction and TRANSFORM for arrays.
     """
 
-    def __init__(self, parent_path: str = "", lambda_var: str = "", depth: int = 0):
+    def __init__(
+        self, parent_path: str = "", lambda_var: str = "", depth: int = 0, indent_level: int = 0
+    ):
         """Initialize the SQL generator visitor.
 
         Args:
             parent_path: The parent column path for nested traversal
             lambda_var: The lambda variable name for array contexts
             depth: Current nesting depth for lambda variable generation
+            indent_level: Current indentation level for formatting (in spaces)
         """
         self.parent_path = parent_path
         self.lambda_var = lambda_var
         self.depth = depth
+        self.indent_level = indent_level
 
     def visit_simple_column(self, node: SimpleColumnNode) -> str:
         """Visit a simple column node and generate SQL reference.
@@ -86,15 +90,26 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
 
         # Build STRUCT() with all fields
         field_expressions = []
+        # Increase indent level for nested content
+        nested_indent_level = self.indent_level + 2
+
         for field in node.fields:
-            # Create visitor for field with updated parent path
+            # Create visitor for field with updated parent path and indent level
             field_visitor = SQLGeneratorVisitor(
-                parent_path=struct_path, lambda_var=self.lambda_var, depth=self.depth
+                parent_path=struct_path,
+                lambda_var=self.lambda_var,
+                depth=self.depth,
+                indent_level=nested_indent_level
             )
             field_expr = field.accept(field_visitor)
             field_expressions.append(f"{field_expr} AS `{field.name}`")
 
-        return f"STRUCT({', '.join(field_expressions)})"
+        # Format with proper indentation
+        indent = " " * self.indent_level
+        nested_indent = " " * nested_indent_level
+        fields_formatted = f",\n{nested_indent}".join(field_expressions)
+
+        return f"STRUCT(\n{nested_indent}{fields_formatted}\n{indent})"
 
     def visit_array(self, node: ArrayNode) -> str:
         """Visit an array node and generate appropriate SQL expression.
@@ -132,14 +147,24 @@ class SQLGeneratorVisitor(SchemaTreeVisitor):
                 new_depth = 0
             new_lambda_var = self._generate_lambda_var(new_depth)
 
+            # Increase indent level for the transform content
+            nested_indent_level = self.indent_level + 2
+
             # For struct elements, we don't need parent_path since the lambda variable
             # directly references the struct
             element_visitor = SQLGeneratorVisitor(
-                parent_path="", lambda_var=new_lambda_var, depth=new_depth
+                parent_path="",
+                lambda_var=new_lambda_var,
+                depth=new_depth,
+                indent_level=nested_indent_level
             )
             element_expr = element.accept(element_visitor)
 
-            return f"TRANSFORM({array_path}, {new_lambda_var} -> {element_expr})"
+            # Format with proper indentation
+            indent = " " * self.indent_level
+            nested_indent = " " * nested_indent_level
+
+            return f"TRANSFORM(\n{nested_indent}{array_path},\n{nested_indent}{new_lambda_var} -> {element_expr}\n{indent})"
         else:
             # Simple array - just reference it
             return array_path
@@ -236,6 +261,8 @@ class SchemaTreeSQLGenerator:
         """
         column_expressions = self._expand_all_columns()
 
+        # Join column expressions - each top-level column starts at column 7 (after "SELECT ")
+        # But nested content will be indented from its parent
         select_clause = "SELECT " + ",\n       ".join(column_expressions)
         from_clause = f"FROM {self._get_full_table_name()}"
 
@@ -271,7 +298,8 @@ class SchemaTreeSQLGenerator:
         Returns:
             SQL expression for the column
         """
-        visitor = SQLGeneratorVisitor(parent_path="", lambda_var="", depth=0)
+        # Start with indent level 7 (for alignment with "SELECT ")
+        visitor = SQLGeneratorVisitor(parent_path="", lambda_var="", depth=0, indent_level=7)
         expr = column.accept(visitor)
 
         # For complex types, add alias

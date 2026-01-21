@@ -67,7 +67,11 @@ def test_struct_column():
     result = generator.generate_select()
 
     expected = """SELECT `id`,
-       STRUCT(`address`.`street` AS `street`, `address`.`city` AS `city`, `address`.`zip` AS `zip`) AS `address`
+       STRUCT(
+         `address`.`street` AS `street`,
+         `address`.`city` AS `city`,
+         `address`.`zip` AS `zip`
+       ) AS `address`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 
     assert result == expected
@@ -105,7 +109,13 @@ def test_nested_struct():
     result = generator.generate_select()
 
     expected = """SELECT `id`,
-       STRUCT(`person`.`name` AS `name`, STRUCT(`person`.`contact`.`email` AS `email`, `person`.`contact`.`phone` AS `phone`) AS `contact`) AS `person`
+       STRUCT(
+         `person`.`name` AS `name`,
+         STRUCT(
+           `person`.`contact`.`email` AS `email`,
+           `person`.`contact`.`phone` AS `phone`
+         ) AS `contact`
+       ) AS `person`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 
     assert result == expected
@@ -168,7 +178,14 @@ def test_array_of_struct_column():
     result = generator.generate_select()
 
     expected = """SELECT `id`,
-       TRANSFORM(`line_items`, item -> STRUCT(item.`product_id` AS `product_id`, item.`quantity` AS `quantity`, item.`price` AS `price`)) AS `line_items`
+       TRANSFORM(
+         `line_items`,
+         item -> STRUCT(
+           item.`product_id` AS `product_id`,
+           item.`quantity` AS `quantity`,
+           item.`price` AS `price`
+         )
+       ) AS `line_items`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 
     assert result == expected
@@ -206,7 +223,10 @@ def test_mixed_columns():
 
     expected = """SELECT `id`,
        `name`,
-       STRUCT(`metadata`.`created_at` AS `created_at`, `metadata`.`updated_at` AS `updated_at`) AS `metadata`,
+       STRUCT(
+         `metadata`.`created_at` AS `created_at`,
+         `metadata`.`updated_at` AS `updated_at`
+       ) AS `metadata`,
        `tags`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 
@@ -250,7 +270,16 @@ def test_struct_with_array_of_struct():
     result = generator.generate_select()
 
     expected = """SELECT `id`,
-       STRUCT(`order`.`order_id` AS `order_id`, TRANSFORM(`order`.`items`, item -> STRUCT(item.`product` AS `product`, item.`quantity` AS `quantity`)) AS `items`) AS `order`
+       STRUCT(
+         `order`.`order_id` AS `order_id`,
+         TRANSFORM(
+           `order`.`items`,
+           item -> STRUCT(
+             item.`product` AS `product`,
+             item.`quantity` AS `quantity`
+           )
+         ) AS `items`
+       ) AS `order`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 
     assert result == expected
@@ -293,7 +322,16 @@ def test_array_of_struct_with_nested_struct():
     result = generator.generate_select()
 
     expected = """SELECT `id`,
-       TRANSFORM(`orders`, item -> STRUCT(item.`order_id` AS `order_id`, STRUCT(item.`customer`.`name` AS `name`, item.`customer`.`email` AS `email`) AS `customer`)) AS `orders`
+       TRANSFORM(
+         `orders`,
+         item -> STRUCT(
+           item.`order_id` AS `order_id`,
+           STRUCT(
+             item.`customer`.`name` AS `name`,
+             item.`customer`.`email` AS `email`
+           ) AS `customer`
+         )
+       ) AS `orders`
 FROM `my_catalog`.`my_schema`.`my_table`"""
 
     assert result == expected
@@ -343,8 +381,8 @@ def test_deeply_nested_array_struct_array_struct():
     result = generator.generate_select()
 
     # Note: Nested arrays should use different lambda variable names
-    assert "TRANSFORM(`departments`, item ->" in result
-    assert "TRANSFORM(item.`employees`, item2 ->" in result
+    assert "TRANSFORM(\n         `departments`,\n         item ->" in result
+    assert "TRANSFORM(\n             item.`employees`,\n             item2 ->" in result
     assert "item2.`emp_id`" in result
     assert "item2.`emp_name`" in result
 
@@ -399,8 +437,8 @@ def test_struct_with_multiple_array_fields():
     result = generator.generate_select()
 
     # Both arrays should have independent lambda variables
-    assert "TRANSFORM(`data`.`orders`, item ->" in result
-    assert "TRANSFORM(`data`.`shipments`, item ->" in result
+    assert "TRANSFORM(\n           `data`.`orders`,\n           item ->" in result
+    assert "TRANSFORM(\n           `data`.`shipments`,\n           item ->" in result
 
 
 def test_triple_nested_struct():
@@ -440,7 +478,7 @@ def test_triple_nested_struct():
     result = generator.generate_select()
 
     # Verify nested STRUCT generation
-    assert "STRUCT(STRUCT(STRUCT(" in result
+    assert "STRUCT(\n         STRUCT(\n           STRUCT(" in result
     assert "`level1`.`level2`.`level3`.`value`" in result
 
 
@@ -579,9 +617,9 @@ def test_extreme_nesting_three_level_deep_arrays():
     result = generator.generate_select()
 
     # Verify 3 levels of TRANSFORM with different lambda variables
-    assert "TRANSFORM(`complex`.`level1`, item ->" in result
-    assert "TRANSFORM(item.`level2`, item2 ->" in result
-    assert "TRANSFORM(item2.`level3`, item3 ->" in result
+    assert "TRANSFORM(\n           `complex`.`level1`,\n           item ->" in result
+    assert "TRANSFORM(\n               item.`level2`,\n               item2 ->" in result
+    assert "TRANSFORM(\n                   item2.`level3`,\n                   item3 ->" in result
     assert "item3.`value`" in result
 
 
@@ -662,8 +700,8 @@ def test_complex_real_world_scenario():
     assert "STRUCT(" in result  # user_info
     assert "`user_info`.`name`" in result
     assert "`user_info`.`address`.`city`" in result
-    assert "TRANSFORM(`orders`, item ->" in result
-    assert "TRANSFORM(item.`items`, item2 ->" in result
+    assert "TRANSFORM(\n         `orders`,\n         item ->" in result
+    assert "TRANSFORM(\n             item.`items`,\n             item2 ->" in result
     assert "`tags`" in result  # MAP is referenced directly
 
 
